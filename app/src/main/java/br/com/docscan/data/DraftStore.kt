@@ -4,10 +4,15 @@ import android.util.AtomicFile
 import br.com.docscan.domain.Crop
 import br.com.docscan.domain.DocumentQuad
 import br.com.docscan.domain.Draft
+import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
+import br.com.docscan.domain.Orientation
 import br.com.docscan.domain.PagePoint
+import br.com.docscan.domain.Paper
+import br.com.docscan.domain.PdfOptions
+import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import java.io.File
 import java.io.IOException
@@ -18,8 +23,8 @@ import org.json.JSONObject
 internal class DraftStore(directory: File) {
     private val metadata = AtomicFile(File(directory, "draft.json"))
 
-    fun read(imageExists: (String) -> Boolean): Draft {
-        if (!metadata.baseFile.isFile && !File(metadata.baseFile.path + ".bak").isFile) return Draft()
+    fun read(imageExists: (String) -> Boolean): EditorSession {
+        if (!metadata.baseFile.isFile && !File(metadata.baseFile.path + ".bak").isFile) return EditorSession()
         val root = try {
             JSONObject(metadata.readFully().decodeToString())
         } catch (error: JSONException) {
@@ -31,14 +36,39 @@ internal class DraftStore(directory: File) {
             items.optJSONObject(index)?.let { readPage(it, imageExists) }
         }.distinctBy { it.id }.take(MAX_PAGES)
         val requested = root.optString("selected")
-        return Draft(pages, pages.firstOrNull { it.id == requested }?.id ?: pages.firstOrNull()?.id)
+        val selectedId = pages.firstOrNull { it.id == requested }?.id ?: pages.firstOrNull()?.id
+        val options = root.optJSONObject("pdf")
+        return EditorSession(
+            draft = Draft(pages, selectedId),
+            documentId = root.optString("documentId").takeIf { it.matches(idPattern) },
+            options = PdfOptions(
+                name = options?.optString("name").orEmpty(),
+                paper = Paper.entries.firstOrNull { it.name == options?.optString("paper") } ?: Paper.A4,
+                orientation = Orientation.entries.firstOrNull { it.name == options?.optString("orientation") }
+                    ?: Orientation.AUTO,
+                marginMm = options?.optInt("margin", 10)?.coerceIn(0, 20) ?: 10,
+                quality = PdfQuality.entries.firstOrNull { it.name == options?.optString("quality") }
+                    ?: PdfQuality.BALANCED,
+            ),
+            dirty = root.optBoolean("dirty", pages.isNotEmpty()),
+        )
     }
 
-    fun write(draft: Draft) {
+    fun write(session: EditorSession) {
+        val draft = session.draft
+        val options = session.options
         val json = JSONObject()
             .put("version", 1)
             .put("selected", draft.selectedId)
             .put("pages", JSONArray(draft.pages.map(::writePage)))
+            .put("documentId", session.documentId)
+            .put("dirty", session.dirty)
+            .put("pdf", JSONObject()
+                .put("name", options.name)
+                .put("paper", options.paper.name)
+                .put("orientation", options.orientation.name)
+                .put("margin", options.marginMm)
+                .put("quality", options.quality.name))
         val stream = metadata.startWrite()
         try {
             stream.write(json.toString().encodeToByteArray())

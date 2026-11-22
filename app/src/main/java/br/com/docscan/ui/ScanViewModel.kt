@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.docscan.domain.Crop
 import br.com.docscan.domain.Draft
+import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.ImageOrigin
 import br.com.docscan.domain.ImportPages
@@ -54,7 +55,7 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         restore()
         viewModelScope.launch {
             for (draft in draftWrites) {
-                safely("Não foi possível guardar o rascunho.") { repository.saveDraft(draft) }
+                safely("Não foi possível guardar o rascunho.") { repository.saveSession(EditorSession(draft = draft)) }
             }
         }
         viewModelScope.launch {
@@ -78,7 +79,7 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         model.update { it.copy(operation = Operation.LOADING, draftError = false) }
         viewModelScope.launch {
             try {
-                val draft = repository.loadDraft()
+                val draft = repository.loadSession().draft
                 model.update { it.copy(draft = draft) }
                 refreshPreview()
             } catch (_: IOException) {

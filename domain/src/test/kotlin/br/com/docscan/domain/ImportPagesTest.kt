@@ -55,8 +55,8 @@ class ImportPagesTest {
             return quad
         }
 
-        override suspend fun loadDraft() = error("Unused")
-        override suspend fun saveDraft(draft: Draft) = error("Unused")
+        override suspend fun loadSession() = error("Unused")
+        override suspend fun saveSession(session: EditorSession, cleanup: Boolean) = error("Unused")
         override suspend fun preview(page: ScanPage, original: Boolean) = error("Unused")
         override suspend fun thumbnail(pageId: String) = error("Unused")
         override suspend fun export(pages: List<ScanPage>, options: PdfOptions, destination: String, onPageSaved: (Int) -> Unit) =

@@ -3,42 +3,59 @@ package br.com.docscan.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import androidx.core.content.FileProvider
-import br.com.docscan.data.imaging.EXPORT_DIMENSION
 import br.com.docscan.data.imaging.PageRenderer
 import br.com.docscan.domain.Draft
+import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
-import br.com.docscan.domain.layout
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal class LocalScanRepository(private val context: Context) : ScanRepository<Bitmap> {
+internal class LocalScanRepository(
+    context: Context,
+    private val pdfFiles: PdfFiles = PdfFiles(context),
+) : ScanRepository<Bitmap> {
     private val resolver = context.contentResolver
     private val cache = context.cacheDir
-    private val directory = File(context.filesDir, "scans")
-    private val sharedPdfs = File(cache, "shared-pdfs")
+    private val directory = File(context.filesDir, "editor")
     private val store = DraftStore(directory)
     private val renderer = PageRenderer()
 
-    override suspend fun loadDraft(): Draft = withContext(Dispatchers.IO) {
-        val draft = store.read { imageFile(it).isFile }
-        val active = draft.pages.mapTo(mutableSetOf()) { it.id }
-        directory.listFiles()?.filter { it.extension == "jpg" && it.nameWithoutExtension !in active }
-            ?.forEach { it.delete() }
-        draft
+    override suspend fun loadSession(): EditorSession = withContext(Dispatchers.IO) {
+        store.read { imageFile(it).isFile }.also { pruneImages(it.draft) }
     }
 
-    override suspend fun saveDraft(draft: Draft) = withContext(Dispatchers.IO) {
+    override suspend fun saveSession(session: EditorSession, cleanup: Boolean) = withContext(Dispatchers.IO) {
         requireDirectory()
-        store.write(draft)
+        store.write(session)
+        if (cleanup) pruneImages(session.draft)
+    }
+
+    fun openSession(session: EditorSession, source: List<File>): EditorSession {
+        requireDirectory()
+        val copies = mutableListOf<File>()
+        val copied = try {
+            val pages = session.draft.pages.zip(source).map { (page, image) ->
+                val id = UUID.randomUUID().toString()
+                val target = imageFile(id)
+                copies += target
+                image.copyTo(target)
+                page.copy(id = id)
+            }
+            val selected = session.draft.pages.indexOfFirst { it.id == session.draft.selectedId }
+            session.copy(draft = Draft(pages, pages.getOrNull(selected)?.id ?: pages.firstOrNull()?.id))
+                .also(store::write)
+        } catch (error: Exception) {
+            copies.forEach { it.delete() }
+            throw error
+        }
+        pruneImages(copied.draft)
+        return copied
     }
 
     override suspend fun importImage(source: String): ScanPage = withContext(Dispatchers.IO) {
@@ -75,14 +92,13 @@ internal class LocalScanRepository(private val context: Context) : ScanRepositor
         options: PdfOptions,
         destination: String,
         onPageSaved: (Int) -> Unit,
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         val temporary = File.createTempFile("scan-", ".pdf", cache)
         try {
-            writePdf(temporary, pages, options, onPageSaved)
+            pdfFiles.write(temporary, pages, options, { imageFile(it.id) }, onPageSaved)
             val target = resolver.openOutputStream(Uri.parse(destination), "wt")
                 ?: throw IOException("Destino indisponível")
             target.use { output -> temporary.inputStream().use { it.copyTo(output) } }
-            Unit
         } finally {
             temporary.delete()
         }
@@ -92,57 +108,17 @@ internal class LocalScanRepository(private val context: Context) : ScanRepositor
         pages: List<ScanPage>,
         options: PdfOptions,
         onPageSaved: (Int) -> Unit,
-    ): ShareablePdf = withContext(Dispatchers.IO) {
-        val staleBefore = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(7)
-        sharedPdfs.listFiles()?.filter { it.lastModified() < staleBefore }?.forEach { it.deleteRecursively() }
-        val folder = File(sharedPdfs, UUID.randomUUID().toString())
-        if (!folder.mkdirs()) throw IOException("Armazenamento indisponível")
-        val pdf = File(folder, options.fileName)
-        try {
-            writePdf(pdf, pages, options, onPageSaved)
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", pdf)
-            ShareablePdf(uri.toString(), pdf.name)
-        } catch (error: Exception) {
-            folder.deleteRecursively()
-            throw error
-        }
+    ): ShareablePdf = pdfFiles.share(options.fileName) { pdf ->
+        pdfFiles.write(pdf, pages, options, { imageFile(it.id) }, onPageSaved)
     }
 
-    private suspend fun writePdf(
-        file: File,
-        pages: List<ScanPage>,
-        options: PdfOptions,
-        onPageSaved: (Int) -> Unit,
-    ) {
-        file.outputStream().buffered().use { stream ->
-            val pdf = JpegPdfWriter(stream, pages.size)
-            for ((index, page) in pages.withIndex()) {
-                withContext(Dispatchers.Default) { addPage(pdf, page, options) }
-                onPageSaved(index + 1)
-            }
-            pdf.finish()
-        }
-    }
+    fun imageFile(id: String) = File(directory, "$id.jpg")
 
-    private suspend fun addPage(pdf: JpegPdfWriter, page: ScanPage, options: PdfOptions) {
-        val rendered = renderer.render(imageFile(page.id), page, EXPORT_DIMENSION)
-        try {
-            val cropped = PageRenderer.crop(rendered, page.crop)
-            try {
-                val jpeg = ByteArrayOutputStream()
-                if (!cropped.compress(Bitmap.CompressFormat.JPEG, options.quality.jpeg, jpeg)) {
-                    throw IOException("Falha ao comprimir a página")
-                }
-                pdf.addPage(jpeg.toByteArray(), cropped.width, cropped.height, options.layout(cropped.width, cropped.height))
-            } finally {
-                if (cropped !== rendered) cropped.recycle()
-            }
-        } finally {
-            rendered.recycle()
-        }
+    private fun pruneImages(draft: Draft) {
+        val active = draft.pages.mapTo(mutableSetOf()) { it.id }
+        directory.listFiles()?.filter { it.extension == "jpg" && it.nameWithoutExtension !in active }
+            ?.forEach { it.delete() }
     }
-
-    private fun imageFile(id: String) = File(directory, "$id.jpg")
 
     private fun requireDirectory() {
         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Armazenamento indisponível")

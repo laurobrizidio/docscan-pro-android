@@ -7,8 +7,8 @@ data class ShareablePdf(val uri: String, val fileName: String)
 enum class ImageOrigin { GALLERY, SCANNER }
 
 interface ScanRepository<Preview> {
-    suspend fun loadDraft(): Draft
-    suspend fun saveDraft(draft: Draft)
+    suspend fun loadSession(): EditorSession
+    suspend fun saveSession(session: EditorSession, cleanup: Boolean = false)
     suspend fun importImage(source: String): ScanPage
     suspend fun detectFrame(page: ScanPage): DocumentQuad?
     suspend fun preview(page: ScanPage, original: Boolean): Preview
