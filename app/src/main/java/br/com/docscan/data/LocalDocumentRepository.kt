@@ -66,11 +66,13 @@ internal class LocalDocumentRepository(
         scan: Draft,
         existingId: String?,
         options: PdfOptions,
+        pendingDocumentId: String?,
         onPageSaved: (Int) -> Unit,
     ): Document = inLibrary {
-        val existing = existingId?.let { requireDocument(it) }
+        val pendingId = pendingDocumentId?.let { UUID.fromString(it).toString() }
+        val existing = existingId?.let { requireDocument(it) } ?: pendingId?.let { dao.get(it) }
         saveVersion(
-            scan, existing?.id ?: UUID.randomUUID().toString(), existing, options,
+            scan, existing?.id ?: pendingId ?: UUID.randomUUID().toString(), existing, options,
             System.currentTimeMillis(), { scans.imageFile(it.id) }, onPageSaved,
         )
     }

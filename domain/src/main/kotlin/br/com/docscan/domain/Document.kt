@@ -20,6 +20,7 @@ data class EditorSession(
     val documentId: String? = null,
     val options: PdfOptions = PdfOptions(),
     val dirty: Boolean = false,
+    val pendingDocumentId: String? = null,
 )
 
 val documentOrder: Comparator<Document> =

@@ -51,6 +51,7 @@ internal class DraftStore(directory: File) {
                     ?: PdfQuality.BALANCED,
             ),
             dirty = root.optBoolean("dirty", pages.isNotEmpty()),
+            pendingDocumentId = root.optString("pendingDocumentId").takeIf { it.matches(idPattern) },
         )
     }
 
@@ -63,6 +64,7 @@ internal class DraftStore(directory: File) {
             .put("pages", JSONArray(draft.pages.map(::writePage)))
             .put("documentId", session.documentId)
             .put("dirty", session.dirty)
+            .put("pendingDocumentId", session.pendingDocumentId)
             .put("pdf", JSONObject()
                 .put("name", options.name)
                 .put("paper", options.paper.name)

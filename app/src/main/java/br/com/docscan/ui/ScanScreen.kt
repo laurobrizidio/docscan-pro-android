@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
@@ -53,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.MAX_PAGES
@@ -68,6 +70,8 @@ internal fun ScanScreen(
     startScanner: () -> Unit,
     pickImages: () -> Unit,
     savePdf: () -> Unit,
+    exportPdf: () -> Unit,
+    goHome: () -> Unit,
     sharePdf: () -> Unit,
     openPdf: (String) -> Unit,
 ) {
@@ -84,10 +88,10 @@ internal fun ScanScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BrandMark()
-                        Text("DocScan Pro", style = MaterialTheme.typography.titleMedium)
+                title = { Text(state.options.name.ifBlank { "Novo documento" }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = goHome, enabled = ready) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar à biblioteca")
                     }
                 },
                 actions = {
@@ -103,6 +107,10 @@ internal fun ScanScreen(
                                 DropdownMenuItem(text = { Text("Opções do PDF") }, onClick = {
                                     showExportMenu = false
                                     showOptions = true
+                                })
+                                DropdownMenuItem(text = { Text("Exportar cópia em PDF") }, onClick = {
+                                    showExportMenu = false
+                                    exportPdf()
                                 })
                                 state.lastExport?.let { uri ->
                                     DropdownMenuItem(text = { Text("Abrir último PDF") }, onClick = {
@@ -162,7 +170,7 @@ internal fun ScanScreen(
                                 modifier = Modifier.weight(1f).height(50.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp),
                             ) {
-                                Text("Salvar PDF")
+                                Text("Salvar")
                             }
                         }
                         Spacer(Modifier.height(6.dp))
@@ -221,14 +229,16 @@ private fun CurrentOperation(operation: Operation, done: Int, total: Int) {
     val progress = if (total == 0) 0f else done.toFloat() / total
     val label = when (operation) {
         Operation.LOADING -> "Carregando rascunho"
+        Operation.OPENING -> "Abrindo documento"
         Operation.IMPORTING -> "Adicionando e enquadrando imagens"
         Operation.ADDING_SCANS -> "Adicionando páginas digitalizadas"
         Operation.DETECTING -> "Procurando bordas"
+        Operation.SAVING -> "Salvando na biblioteca · $done de $total"
         Operation.EXPORTING -> "Gerando PDF · $done de $total"
         Operation.SHARING -> "Preparando PDF · $done de $total"
     }
     Column(Modifier.fillMaxWidth()) {
-        if (operation == Operation.EXPORTING || operation == Operation.SHARING) {
+        if (operation == Operation.EXPORTING || operation == Operation.SHARING || operation == Operation.SAVING) {
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         } else {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())

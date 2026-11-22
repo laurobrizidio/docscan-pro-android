@@ -1,14 +1,17 @@
 package br.com.docscan.ui
 
+import android.database.sqlite.SQLiteException
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.docscan.domain.Crop
 import br.com.docscan.domain.Draft
+import br.com.docscan.domain.DocumentRepository
 import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.ImageOrigin
 import br.com.docscan.domain.ImportPages
+import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
 import br.com.docscan.domain.PdfOptions
@@ -16,6 +19,7 @@ import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -25,37 +29,49 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-internal enum class Operation { LOADING, IMPORTING, ADDING_SCANS, DETECTING, EXPORTING, SHARING }
+internal enum class Operation { LOADING, OPENING, IMPORTING, ADDING_SCANS, DETECTING, SAVING, EXPORTING, SHARING }
 
 internal data class ScanUiState(
-    val draft: Draft = Draft(),
+    val session: EditorSession = EditorSession(),
     val operation: Operation? = Operation.LOADING,
     val preview: Bitmap? = null,
     val previewLoading: Boolean = false,
     val original: Boolean = false,
-    val options: PdfOptions = PdfOptions(),
     val pagesExported: Int = 0,
     val lastExport: String? = null,
     val sharePdf: ShareablePdf? = null,
     val draftError: Boolean = false,
-)
+) {
+    val draft get() = session.draft
+    val options get() = session.options
+}
 
-internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : ViewModel() {
+internal class ScanViewModel(
+    private val repository: ScanRepository<Bitmap>,
+    private val documents: DocumentRepository,
+) : ViewModel() {
     private data class PreviewRequest(val page: ScanPage, val original: Boolean)
 
     private val model = MutableStateFlow(ScanUiState())
     val state = model.asStateFlow()
     private val previewRequests = MutableStateFlow<PreviewRequest?>(null)
-    private val draftWrites = Channel<Draft>(Channel.CONFLATED)
+    private val draftWrites = Channel<EditorSession>(Channel.CONFLATED)
+    private val workspaceLock = Mutex()
     private val feedback = Channel<String>(Channel.BUFFERED)
     val messages = feedback.receiveAsFlow()
 
     init {
         restore()
         viewModelScope.launch {
-            for (draft in draftWrites) {
-                safely("Não foi possível guardar o rascunho.") { repository.saveSession(EditorSession(draft = draft)) }
+            for (session in draftWrites) {
+                workspaceLock.withLock {
+                    if (state.value.session == session) {
+                        safely("Não foi possível guardar o rascunho.") { repository.saveSession(session) }
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -79,10 +95,16 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         model.update { it.copy(operation = Operation.LOADING, draftError = false) }
         viewModelScope.launch {
             try {
-                val draft = repository.loadSession().draft
-                model.update { it.copy(draft = draft) }
+                var session = repository.loadSession()
+                val id = session.documentId
+                if (id != null && documents.get(id) == null) {
+                    session = EditorSession()
+                    repository.saveSession(session, cleanup = true)
+                }
+                updateSession(session)
                 refreshPreview()
-            } catch (_: IOException) {
+            } catch (error: Exception) {
+                if (error !is IOException && error !is SQLiteException) throw error
                 model.update { it.copy(draftError = true) }
                 tell("Não foi possível ler o rascunho salvo.")
             } finally {
@@ -91,15 +113,23 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         }
     }
 
-    fun import(sources: List<String>, origin: ImageOrigin) {
+    fun import(sources: List<String>, origin: ImageOrigin, newDocument: Boolean, onImported: () -> Unit) {
         val operation = if (origin == ImageOrigin.SCANNER) Operation.ADDING_SCANS else Operation.IMPORTING
         if (sources.isEmpty() || !begin(operation)) return
         viewModelScope.launch {
             try {
                 safely("Não foi possível adicionar as imagens.") {
-                    val available = MAX_PAGES - state.value.draft.pages.size
+                    val base = if (newDocument) EditorSession() else state.value.session
+                    val available = MAX_PAGES - base.draft.pages.size
                     val result = ImportPages(repository)(sources, available, origin)
-                    editDraft(state.value.draft.add(result.pages))
+                    if (result.pages.isNotEmpty()) {
+                        val added = base.copy(draft = base.draft.add(result.pages), dirty = true)
+                        workspaceLock.withLock {
+                            repository.saveSession(added, cleanup = newDocument)
+                            updateSession(added)
+                        }
+                        onImported()
+                    }
                     if (result.unreadable > 0) tell("${result.unreadable} imagem(ns) não puderam ser abertas.")
                     if (result.aboveLimit > 0) tell("O documento aceita até $MAX_PAGES páginas.")
                 }
@@ -112,7 +142,7 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
     fun select(id: String) {
         if (state.value.operation != null || state.value.draft.selectedId == id) return
         model.update { it.copy(original = false) }
-        editDraft(state.value.draft.copy(selectedId = id))
+        editDraft(state.value.draft.copy(selectedId = id), modifies = false)
     }
 
     suspend fun thumbnail(id: String) = repository.thumbnail(id)
@@ -168,7 +198,85 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
     }
 
     fun setPdfOptions(options: PdfOptions) {
-        model.update { it.copy(options = options) }
+        val session = state.value.session
+        if (options != session.options && state.value.operation == null) {
+            changeSession(session.copy(options = options, dirty = true))
+        }
+    }
+
+    fun openDocument(id: String, onOpened: () -> Unit) {
+        if (!begin(Operation.OPENING)) return
+        viewModelScope.launch {
+            try {
+                safely("Não foi possível abrir o documento.") {
+                    workspaceLock.withLock {
+                        updateSession(documents.open(id))
+                    }
+                    onOpened()
+                }
+            } finally {
+                model.update { it.copy(operation = null) }
+            }
+        }
+    }
+
+    fun saveToLibrary(onSaved: () -> Unit) {
+        val current = state.value
+        if (current.draft.pages.isEmpty() || !begin(Operation.SAVING)) return
+        model.update { it.copy(pagesExported = 0) }
+        viewModelScope.launch {
+            try {
+                safely("Não foi possível salvar o documento na biblioteca.") {
+                    val session = current.session
+                    val pendingId = session.pendingDocumentId ?: if (session.documentId == null) UUID.randomUUID().toString() else null
+                    if (pendingId != session.pendingDocumentId) {
+                        val pending = session.copy(pendingDocumentId = pendingId)
+                        workspaceLock.withLock {
+                            repository.saveSession(pending)
+                            updateSession(pending)
+                        }
+                    }
+                    val saved = documents.save(session.draft, session.documentId, session.options, pendingId) { done ->
+                        model.update { it.copy(pagesExported = done) }
+                    }
+                    workspaceLock.withLock {
+                        val empty = EditorSession()
+                        try {
+                            repository.saveSession(empty, cleanup = true)
+                            updateSession(empty)
+                        } catch (_: IOException) {
+                            val finished = session.copy(
+                                documentId = saved.id, options = session.options.copy(name = saved.name),
+                                dirty = false, pendingDocumentId = null,
+                            )
+                            updateSession(finished)
+                            draftWrites.trySend(finished)
+                        }
+                    }
+                    model.update { it.copy(lastExport = null) }
+                    tell("Documento salvo na biblioteca.")
+                    onSaved()
+                }
+            } catch (error: InvalidDocumentName) {
+                tell(error.reason.message())
+            } finally {
+                model.update { it.copy(operation = null) }
+            }
+        }
+    }
+
+    suspend fun discardDeleted(ids: Set<String>) = workspaceLock.withLock {
+        val session = state.value.session
+        if (session.documentId in ids || session.pendingDocumentId in ids) {
+            val empty = EditorSession()
+            repository.saveSession(empty, cleanup = true)
+            updateSession(empty)
+        }
+    }
+
+    fun syncRenamed(id: String, name: String) {
+        val session = state.value.session
+        if (session.documentId == id) changeSession(session.copy(options = session.options.copy(name = name)))
     }
 
     fun export(destination: String, options: PdfOptions) {
@@ -221,11 +329,23 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         editDraft(current.draft.edit(change(page)))
     }
 
-    private fun editDraft(draft: Draft) {
-        val previous = state.value.draft
-        if (draft == previous) return
-        model.update { it.copy(draft = draft, original = it.original && draft.selectedId == previous.selectedId) }
-        draftWrites.trySend(draft)
+    private fun editDraft(draft: Draft, modifies: Boolean = true) {
+        val session = state.value.session
+        if (draft != session.draft) changeSession(session.copy(draft = draft, dirty = session.dirty || modifies))
+    }
+
+    private fun changeSession(session: EditorSession) {
+        updateSession(session)
+        draftWrites.trySend(session)
+    }
+
+    private fun updateSession(session: EditorSession) {
+        model.update {
+            it.copy(
+                session = session,
+                original = it.original && session.draft.selectedId == it.draft.selectedId,
+            )
+        }
         refreshPreview()
     }
 
@@ -252,6 +372,8 @@ internal class ScanViewModel(private val repository: ScanRepository<Bitmap>) : V
         } catch (_: IOException) {
             tell(message)
         } catch (_: SecurityException) {
+            tell(message)
+        } catch (_: SQLiteException) {
             tell(message)
         }
     }

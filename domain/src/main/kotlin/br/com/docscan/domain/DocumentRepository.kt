@@ -11,6 +11,7 @@ interface DocumentRepository {
         scan: Draft,
         existingId: String? = null,
         options: PdfOptions = PdfOptions(),
+        pendingDocumentId: String? = null,
         onPageSaved: (Int) -> Unit = {},
     ): Document
     suspend fun rename(id: String, newName: String)
