@@ -47,11 +47,13 @@ private data class ShareApp(val component: ComponentName, val label: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PdfShareSheet(pdf: ShareablePdf, onDismiss: () -> Unit, onError: (String) -> Unit) {
+internal fun PdfShareSheet(pdfs: List<ShareablePdf>, onDismiss: () -> Unit, onError: (String) -> Unit) {
+    if (pdfs.isEmpty()) return
     val context = LocalContext.current
-    val send = remember(pdf) { pdf.sendIntent() }
+    val send = remember(pdfs) { pdfs.sendIntent() }
     val apps = remember(context, send) { findShortcuts(context.packageManager, send) }
-    var selected by remember(pdf) { mutableStateOf<Shortcut?>(null) }
+    var selected by remember(pdfs) { mutableStateOf<Shortcut?>(null) }
+    val singular = pdfs.size == 1
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.75f).dp
 
     fun launch(intent: Intent) {
@@ -73,8 +75,10 @@ internal fun PdfShareSheet(pdf: ShareablePdf, onDismiss: () -> Unit, onError: (S
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
-                Text(selected?.label ?: "Compartilhar PDF", style = MaterialTheme.typography.headlineSmall)
-                Text(pdf.fileName, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(selected?.label ?: if (singular) "Compartilhar PDF" else "Compartilhar PDFs",
+                    style = MaterialTheme.typography.headlineSmall)
+                Text(if (singular) pdfs.first().fileName else "${pdfs.size} documentos",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 
             val group = selected
@@ -117,12 +121,15 @@ internal fun PdfShareSheet(pdf: ShareablePdf, onDismiss: () -> Unit, onError: (S
     }
 }
 
-private fun ShareablePdf.sendIntent(): Intent {
-    val content = Uri.parse(uri)
-    return Intent(Intent.ACTION_SEND).apply {
+private fun List<ShareablePdf>.sendIntent(): Intent {
+    val uris = ArrayList(map { Uri.parse(it.uri) })
+    val clips = ClipData.newRawUri(first().fileName, uris.first())
+    uris.drop(1).forEach { clips.addItem(ClipData.Item(it)) }
+    return Intent(if (size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
         type = PDF_MIME_TYPE
-        putExtra(Intent.EXTRA_STREAM, content)
-        clipData = ClipData.newRawUri(fileName, content)
+        if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris.first())
+        else putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+        clipData = clips
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 }

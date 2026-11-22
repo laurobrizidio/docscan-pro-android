@@ -2,6 +2,9 @@ package br.com.docscan.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Log
+import android.util.LruCache
 import br.com.docscan.data.imaging.PageRenderer
 import br.com.docscan.domain.Document
 import br.com.docscan.domain.DocumentRepository
@@ -39,6 +42,9 @@ internal class LocalDocumentRepository(
     private val changes = File(context.filesDir, "document-changes")
     private val legacy = File(context.filesDir, "scans")
     private val renderer = PageRenderer()
+    private val thumbnails = object : LruCache<Pair<String, Long>, Bitmap>(6 * 1024 * 1024) {
+        override fun sizeOf(key: Pair<String, Long>, value: Bitmap) = value.allocationByteCount
+    }
     private val mutex = Mutex()
     private var ready = false
 
@@ -90,8 +96,11 @@ internal class LocalDocumentRepository(
             val moved = mutableListOf<DocumentRow>()
             try {
                 for (row in rows) {
-                    move(documentFolder(row.id), previousVersion(row.id))
-                    moved += row
+                    val folder = documentFolder(row.id)
+                    if (folder.exists()) {
+                        move(folder, previousVersion(row.id))
+                        moved += row
+                    }
                 }
                 dao.delete(rows.map(DocumentRow::id))
             } catch (error: Exception) {
@@ -99,7 +108,9 @@ internal class LocalDocumentRepository(
                 throw error
             }
             for (row in rows) previousVersion(row.id).deleteRecursively()
-            pdfFiles.deleteShares(rows.mapTo(mutableSetOf(), DocumentRow::id))
+            val deletedIds = rows.mapTo(mutableSetOf(), DocumentRow::id)
+            thumbnails.snapshot().keys.filter { it.first in deletedIds }.forEach { thumbnails.remove(it) }
+            pdfFiles.deleteShares(deletedIds)
         }
     }
 
@@ -114,8 +125,9 @@ internal class LocalDocumentRepository(
 
     suspend fun thumbnail(document: Document): Bitmap? = withContext(Dispatchers.IO) {
         val path = document.thumbnailPath ?: return@withContext null
+        val key = document.id to document.updatedAt
         try {
-            PageRenderer.decode(File(documents, path), 250)
+            thumbnails.get(key) ?: PageRenderer.decode(File(documents, path), 250).also { thumbnails.put(key, it) }
         } catch (_: IOException) {
             null
         }
@@ -211,21 +223,43 @@ internal class LocalDocumentRepository(
 
     private suspend fun migrateLegacyDraft() {
         if (!dao.migrated(LEGACY_MIGRATION)) {
+            val session = try {
+                DraftStore(legacy).read { true }
+            } catch (_: IOException) {
+                null
+            }
+            val pages = session?.draft?.pages.orEmpty()
+            val readable = pages.filter { isReadableLegacyImage(legacyImage(it)) }
+            val preserve = session == null || readable.size != pages.size ||
+                (pages.isEmpty() && legacy.listFiles().orEmpty().any { it.extension == "jpg" })
             if (legacy.isDirectory && dao.get(LEGACY_DOCUMENT_ID) == null) {
-                val session = DraftStore(legacy).read { true }
-                if (session.draft.pages.isNotEmpty()) {
+                if (session != null && readable.isNotEmpty()) {
+                    val selection = session.draft.selectedId?.takeIf { id -> readable.any { it.id == id } }
+                    val draft = Draft(readable, selection ?: readable.first().id)
                     val date = File(legacy, "draft.json").lastModified().takeIf { it > 0 }
                         ?: System.currentTimeMillis()
                     saveVersion(
-                        session.draft, LEGACY_DOCUMENT_ID, null, session.options, date,
-                        { page -> File(legacy, "${page.id}.jpg") }, {},
+                        draft, LEGACY_DOCUMENT_ID, null, session.options, date, ::legacyImage, {},
                     )
                 }
+            }
+            if (preserve && !dao.migrated(PRESERVED_LEGACY)) {
+                dao.completeMigration(CompletedMigration(PRESERVED_LEGACY))
+                Log.w("DocScan", "Rascunho anterior preservado por conter dados ilegíveis.")
             }
             dao.completeMigration(CompletedMigration(LEGACY_MIGRATION))
         }
         // The marker survives deleting the imported document and prevents importing it again.
-        if (legacy.isDirectory) legacy.deleteRecursively()
+        if (legacy.isDirectory && !dao.migrated(PRESERVED_LEGACY)) legacy.deleteRecursively()
+    }
+
+    private fun legacyImage(page: ScanPage) = File(legacy, "${page.id}.jpg")
+
+    private fun isReadableLegacyImage(file: File): Boolean {
+        if (!file.isFile || file.length() == 0L) return false
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        return bounds.outWidth > 0 && bounds.outHeight > 0
     }
 
     /** The database revision decides which directory survives an interrupted publish or delete. */
@@ -240,6 +274,7 @@ internal class LocalDocumentRepository(
                 move(previous, active)
             } else {
                 previous.deleteRecursively()
+                if (row == null) pdfFiles.deleteShares(setOf(id))
             }
         }
         documents.listFiles().orEmpty().filter { it.name !in rows }.forEach { it.deleteRecursively() }
@@ -266,6 +301,7 @@ internal class LocalDocumentRepository(
 
     private companion object {
         const val LEGACY_MIGRATION = "legacy-draft-v1"
+        const val PRESERVED_LEGACY = "legacy-draft-v1-preserved"
         const val LEGACY_DOCUMENT_ID = "3fb2bfe0-e730-46bc-a7e2-9f808f2381d5"
     }
 }

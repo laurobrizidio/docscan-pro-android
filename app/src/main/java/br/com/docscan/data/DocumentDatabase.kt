@@ -8,6 +8,7 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.Upsert
 import br.com.docscan.domain.Document
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +47,12 @@ internal interface DocumentDao {
     suspend fun rename(id: String, name: String, nameKey: String, updatedAt: Long)
 
     @Query("DELETE FROM documents WHERE id IN (:ids)")
-    suspend fun delete(ids: List<String>)
+    suspend fun deleteChunk(ids: List<String>)
+
+    @Transaction
+    suspend fun delete(ids: List<String>) {
+        for (chunk in ids.chunked(500)) deleteChunk(chunk)
+    }
 
     @Query("SELECT EXISTS(SELECT 1 FROM completed_migrations WHERE `key` = :key)")
     suspend fun migrated(key: String): Boolean

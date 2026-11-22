@@ -186,11 +186,9 @@ internal fun ScanRoute(
             ScanProgress(title = "Adicionando páginas digitalizadas")
         }
         state.sharePdf?.let { pdf ->
-            PdfShareSheet(pdf, onDismiss = viewModel::dismissShare, onError = viewModel::tell)
+            PdfShareSheet(listOf(pdf), onDismiss = viewModel::dismissShare, onError = viewModel::tell)
         }
-        library.sharedPdfs.singleOrNull()?.let { pdf ->
-            PdfShareSheet(pdf, onDismiss = home::closeShare, onError = viewModel::tell)
-        }
+        PdfShareSheet(library.sharedPdfs, onDismiss = home::closeShare, onError = viewModel::tell)
     }
 }
 

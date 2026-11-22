@@ -209,6 +209,7 @@ internal fun HomeScreen(
                     }
                     LibraryItem(
                         document, thumbnail, document.id == state.expandedId, document.id in state.selectedIds, ready,
+                        showMenu = !selecting,
                         tap = { viewModel.tap(document) },
                         select = { viewModel.toggleSelected(document.id) },
                         open = { openDocument(document) },
@@ -287,6 +288,7 @@ private fun LibraryItem(
     expanded: Boolean,
     selected: Boolean,
     enabled: Boolean,
+    showMenu: Boolean,
     tap: () -> Unit,
     select: () -> Unit,
     open: () -> Unit,
@@ -323,7 +325,7 @@ private fun LibraryItem(
                 }
                 Checkbox(selected, onCheckedChange = { select() }, enabled = enabled,
                     modifier = Modifier.semantics { contentDescription = "Selecionar ${document.name}" })
-                Box {
+                if (showMenu) Box {
                     IconButton(onClick = { menu = true }, enabled = enabled) {
                         Icon(Icons.Default.MoreVert, "Opções de ${document.name}")
                     }
