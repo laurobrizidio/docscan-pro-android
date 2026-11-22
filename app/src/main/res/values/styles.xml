@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">DocScan Pro</string>
+    <style name="Theme.DocScan" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#111917</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#99F0CD</item>
+    </style>
+</resources>
