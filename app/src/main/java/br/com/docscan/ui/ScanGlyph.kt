@@ -18,7 +18,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class Glyph { SCAN, IMAGE, CROP, ROTATE, TUNE, COMPARE, PDF, CHAT, CLOUD, SUN, MOON }
+internal enum class Glyph { SCAN, CAMERA, IMAGE, CROP, ROTATE, TUNE, COMPARE, PDF, CHAT, CLOUD, SUN, MOON }
 
 @Composable
 internal fun ScanGlyph(
@@ -50,6 +50,10 @@ internal fun ScanGlyph(
                     line(7f, 9f, 17f, 9f)
                     line(7f, 12f, 17f, 12f)
                     line(7f, 15f, 14f, 15f)
+                }
+                Glyph.CAMERA -> {
+                    path(3f, 7f, 7f, 7f, 9f, 4f, 15f, 4f, 17f, 7f, 21f, 7f, 21f, 20f, 3f, 20f, 3f, 7f)
+                    drawCircle(tint, 3.5f, Offset(12f, 13f), style = stroke)
                 }
                 Glyph.IMAGE -> {
                     drawRoundRect(tint, Offset(3f, 4f), Size(18f, 16f), CornerRadius(2f), style = stroke)

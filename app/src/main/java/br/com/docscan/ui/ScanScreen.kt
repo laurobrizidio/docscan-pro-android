@@ -210,8 +210,8 @@ internal fun ScanScreen(
 }
 
 @Composable
-private fun BrandMark() {
-    Surface(shape = RoundedCornerShape(11.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+internal fun BrandMark(modifier: Modifier = Modifier) {
+    Surface(modifier, shape = RoundedCornerShape(11.dp), color = MaterialTheme.colorScheme.primaryContainer) {
         ScanGlyph(Glyph.SCAN, Modifier.padding(6.dp).size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
