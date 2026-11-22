@@ -85,6 +85,7 @@ internal fun HomeScreen(
     resumeEditor: () -> Unit,
     openDocument: (Document) -> Unit,
     deleteDocuments: (Set<String>) -> Unit,
+    onRenamed: (String, String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<Set<String>>(emptySet()) }
     val ready = !state.loading && !state.loadError && !state.busy && canOpenEditor
@@ -225,7 +226,9 @@ internal fun HomeScreen(
                 )
             },
             dismissButton = { TextButton(onClick = viewModel::cancelRename, enabled = !state.busy) { Text("Cancelar") } },
-            confirmButton = { Button(onClick = viewModel::confirmRename, enabled = !state.busy) { Text("Renomear") } },
+            confirmButton = {
+                Button(onClick = { viewModel.confirmRename(onRenamed) }, enabled = !state.busy) { Text("Renomear") }
+            },
         )
     }
     if (pendingDelete.isNotEmpty()) {

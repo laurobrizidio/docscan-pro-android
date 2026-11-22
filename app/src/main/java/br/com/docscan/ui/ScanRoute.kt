@@ -162,6 +162,7 @@ internal fun ScanRoute(
                     else replaceDraft { viewModel.openDocument(document.id) { editing = true } }
                 },
                 deleteDocuments = { ids -> home.delete(ids, viewModel::discardDeleted) },
+                onRenamed = viewModel::syncRenamed,
             )
         }
         confirmSwitch?.let { action ->
@@ -186,6 +187,9 @@ internal fun ScanRoute(
         }
         state.sharePdf?.let { pdf ->
             PdfShareSheet(pdf, onDismiss = viewModel::dismissShare, onError = viewModel::tell)
+        }
+        library.sharedPdfs.singleOrNull()?.let { pdf ->
+            PdfShareSheet(pdf, onDismiss = home::closeShare, onError = viewModel::tell)
         }
     }
 }

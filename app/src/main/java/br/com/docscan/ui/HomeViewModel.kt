@@ -108,11 +108,12 @@ internal class HomeViewModel(
         if (!state.value.busy) model.update { it.copy(rename = null) }
     }
 
-    fun confirmRename() {
+    fun confirmRename(onRenamed: (String, String) -> Unit) {
         val rename = state.value.rename ?: return
         runOperation("Não foi possível renomear o documento.") {
             try {
                 repository.rename(rename.id, rename.name)
+                repository.get(rename.id)?.let { onRenamed(it.id, it.name) }
                 model.update { it.copy(rename = null) }
             } catch (error: InvalidDocumentName) {
                 model.update { it.copy(rename = rename.copy(error = error.reason.message())) }
