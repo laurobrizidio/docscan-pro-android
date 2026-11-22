@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -58,10 +60,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import br.com.docscan.domain.Document
 import java.text.SimpleDateFormat
@@ -88,11 +92,16 @@ internal fun HomeScreen(
     onRenamed: (String, String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val focus = LocalFocusManager.current
     val ready = !state.loading && !state.loadError && !state.busy && canOpenEditor
     val selecting = state.selectedIds.isNotEmpty()
     val list = rememberLazyListState()
     val searching = state.query.isNotBlank()
-    val visible = if (state.showAll || searching || selecting) state.documents else state.documents.take(RECENT_LIMIT)
+    val visible = when {
+        state.loading || state.loadError -> emptyList()
+        state.showAll || searching || selecting -> state.documents
+        else -> state.documents.take(RECENT_LIMIT)
+    }
     BackHandler(selecting || state.showAll) {
         if (selecting) viewModel.clearSelection() else viewModel.showAll(false)
     }
@@ -153,6 +162,8 @@ internal fun HomeScreen(
                             }
                         },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
                         shape = MaterialTheme.shapes.medium,
                     )
                 }

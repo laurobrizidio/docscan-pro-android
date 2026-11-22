@@ -35,6 +35,11 @@ class DocumentTest {
         assertEquals("$name (3)", availableDocumentName(name, listOf(name, "$name (2)", "$name (4)")))
     }
 
+    @Test
+    fun searchKeysIgnoreCaseAndAccentsAndKeepPunctuationLiteral() {
+        assertEquals("cartao 100%", documentNameKey("  CARTÃO 100%  "))
+    }
+
     private fun document(id: String, created: Long, updated: Long) =
         Document(id, id, created, updated, 1, null)
 }

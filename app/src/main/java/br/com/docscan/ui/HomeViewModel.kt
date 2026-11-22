@@ -11,6 +11,7 @@ import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.ShareablePdf
 import java.io.IOException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
@@ -49,6 +50,7 @@ internal class HomeViewModel(
     init {
         viewModelScope.launch {
             subscription.collectLatest { (query, _) ->
+                if (query.isNotBlank()) delay(150)
                 val documents = if (query.isBlank()) repository.observeAll() else repository.search(query)
                 documents.catch { error ->
                     if (error !is IOException && error !is SQLiteException) throw error
@@ -75,7 +77,8 @@ internal class HomeViewModel(
     }
 
     fun setQuery(query: String) {
-        model.update { it.copy(query = query, selectedIds = emptySet(), expandedId = null) }
+        if (query == state.value.query) return
+        model.update { it.copy(query = query, loading = true, selectedIds = emptySet(), expandedId = null) }
         subscription.update { it.copy(query = query) }
     }
 
