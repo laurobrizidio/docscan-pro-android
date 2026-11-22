@@ -37,6 +37,7 @@ internal class LocalDocumentRepository(
 ) : DocumentRepository {
     private val documents = File(context.filesDir, "documents")
     private val changes = File(context.filesDir, "document-changes")
+    private val legacy = File(context.filesDir, "scans")
     private val renderer = PageRenderer()
     private val mutex = Mutex()
     private var ready = false
@@ -199,10 +200,30 @@ internal class LocalDocumentRepository(
                 ensureDirectory(documents)
                 ensureDirectory(changes)
                 recoverChanges()
+                migrateLegacyDraft()
                 ready = true
             }
             work()
         }
+    }
+
+    private suspend fun migrateLegacyDraft() {
+        if (!dao.migrated(LEGACY_MIGRATION)) {
+            if (legacy.isDirectory && dao.get(LEGACY_DOCUMENT_ID) == null) {
+                val session = DraftStore(legacy).read { true }
+                if (session.draft.pages.isNotEmpty()) {
+                    val date = File(legacy, "draft.json").lastModified().takeIf { it > 0 }
+                        ?: System.currentTimeMillis()
+                    saveVersion(
+                        session.draft, LEGACY_DOCUMENT_ID, null, session.options, date,
+                        { page -> File(legacy, "${page.id}.jpg") }, {},
+                    )
+                }
+            }
+            dao.completeMigration(CompletedMigration(LEGACY_MIGRATION))
+        }
+        // The marker survives deleting the imported document and prevents importing it again.
+        if (legacy.isDirectory) legacy.deleteRecursively()
     }
 
     /** The database revision decides which directory survives an interrupted publish or delete. */
@@ -239,5 +260,10 @@ internal class LocalDocumentRepository(
 
     private fun move(source: File, destination: File) {
         if (destination.exists() || !source.renameTo(destination)) throw IOException("Armazenamento indisponível")
+    }
+
+    private companion object {
+        const val LEGACY_MIGRATION = "legacy-draft-v1"
+        const val LEGACY_DOCUMENT_ID = "3fb2bfe0-e730-46bc-a7e2-9f808f2381d5"
     }
 }
