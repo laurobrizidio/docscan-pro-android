@@ -66,6 +66,7 @@ internal fun Editor(
     previewHeight: Dp,
     viewModel: ScanViewModel,
     adjustments: () -> Unit,
+    extractText: () -> Unit,
     requestDelete: () -> Unit,
 ) {
     val index = state.draft.pages.indexOfFirst { it.id == page.id }
@@ -107,6 +108,10 @@ internal fun Editor(
                 }, enabled = ready) {
                     ScanGlyph(Glyph.ROTATE, Modifier.size(17.dp))
                     Text("Girar", Modifier.padding(start = 6.dp))
+                }
+                TextButton(onClick = extractText, enabled = ready) {
+                    ScanGlyph(Glyph.TEXT, Modifier.size(17.dp))
+                    Text("Extrair texto", Modifier.padding(start = 6.dp))
                 }
             }
             if (cropping) {

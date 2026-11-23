@@ -91,6 +91,7 @@ internal class ScanViewModel(
     private val workspaceLock = Mutex()
     private var estimatesJob: Job? = null
     private var ocrJob: Job? = null
+    var pendingOcrExport: String? = null
     private val feedback = Channel<String>(Channel.BUFFERED)
     val messages = feedback.receiveAsFlow()
     private val idCardResults = Channel<IdCardResult>(Channel.BUFFERED)

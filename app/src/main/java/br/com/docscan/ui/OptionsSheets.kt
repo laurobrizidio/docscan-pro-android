@@ -2,6 +2,7 @@ package br.com.docscan.ui
 
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -19,6 +20,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -171,15 +174,22 @@ internal fun AdjustmentsSheet(page: ScanPage, pageCount: Int, viewModel: ScanVie
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditorSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+internal fun EditorSheet(
+    onDismiss: () -> Unit,
+    snackbars: SnackbarHostState? = null,
+    content: @Composable () -> Unit,
+) {
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.76f).dp
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(
-            Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding()
-                .verticalScroll(rememberScrollState()).padding(start = 22.dp, end = 22.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            content()
+        Box(Modifier.fillMaxWidth().heightIn(max = maxHeight).imePadding()) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(start = 22.dp, end = 22.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                content()
+            }
+            if (snackbars != null) SnackbarHost(snackbars, Modifier.align(Alignment.BottomCenter))
         }
     }
 }

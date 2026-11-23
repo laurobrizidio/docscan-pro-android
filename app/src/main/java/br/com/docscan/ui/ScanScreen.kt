@@ -134,7 +134,7 @@ internal fun ScanScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background),
             )
         },
-        snackbarHost = { SnackbarHost(snackbars) },
+        snackbarHost = { if (state.ocr == null || !ready) SnackbarHost(snackbars) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (page != null) {
@@ -199,8 +199,11 @@ internal fun ScanScreen(
             val previewHeight = (maxHeight * if (wide) 0.69f else 0.45f).coerceIn(230.dp, if (wide) 540.dp else 370.dp)
             Column(Modifier.fillMaxSize()) {
                 state.operation?.let {
-                    if (it == Operation.RECOGNIZING) CurrentOperation(it, state.ocrDone, state.ocrTotal)
-                    else CurrentOperation(it, state.pagesExported, state.draft.pages.size)
+                    if (it == Operation.RECOGNIZING) {
+                        CurrentOperation(it, state.ocrDone, state.ocrTotal, onCancel = viewModel::cancelOcr)
+                    } else {
+                        CurrentOperation(it, state.pagesExported, state.draft.pages.size)
+                    }
                 }
                 when {
                     state.draftError -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -214,12 +217,14 @@ internal fun ScanScreen(
                     page != null -> Editor(
                         state, page, wide, previewHeight, viewModel,
                         adjustments = { showAdjustments = true },
+                        extractText = { viewModel.extractText() },
                         requestDelete = { showDelete = true },
                     )
                 }
             }
         }
     }
+    state.ocr?.let { OcrSheet(it, state.options.name, ready, viewModel, snackbars) }
     if (showOptions) {
         PdfOptionsSheet(state.options, state.sizeEstimates, viewModel::setPdfOptions, onDismiss = { showOptions = false })
     }
@@ -245,7 +250,7 @@ internal fun BrandMark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun CurrentOperation(operation: Operation, done: Int, total: Int) {
+internal fun CurrentOperation(operation: Operation, done: Int, total: Int, onCancel: (() -> Unit)? = null) {
     val progress = if (total == 0) 0f else done.toFloat() / total
     val label = when (operation) {
         Operation.LOADING -> "Carregando rascunho"
@@ -268,7 +273,10 @@ internal fun CurrentOperation(operation: Operation, done: Int, total: Int) {
         } else {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
-        Text(label, Modifier.padding(horizontal = 16.dp, vertical = 7.dp), style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 7.dp), style = MaterialTheme.typography.bodySmall)
+            if (onCancel != null) TextButton(onClick = onCancel) { Text("Cancelar") }
+        }
     }
 }
 
