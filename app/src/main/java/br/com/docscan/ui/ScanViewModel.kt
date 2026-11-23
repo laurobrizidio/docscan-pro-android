@@ -24,6 +24,7 @@ import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
+import br.com.docscan.domain.TextRecognizer
 import br.com.docscan.domain.availableDocumentName
 import br.com.docscan.domain.defaultDocumentName
 import br.com.docscan.domain.qualityLadder
@@ -71,6 +72,7 @@ internal data class ScanUiState(
 internal class ScanViewModel(
     private val repository: ScanRepository<Bitmap>,
     private val documents: DocumentRepository,
+    private val recognizer: TextRecognizer,
 ) : ViewModel() {
     private data class PreviewRequest(val page: ScanPage, val original: Boolean)
 
@@ -481,6 +483,11 @@ internal class ScanViewModel(
 
     fun finishIdCardStep(result: IdCardResult) {
         idCardResults.trySend(result)
+    }
+
+    override fun onCleared() {
+        recognizer.close()
+        super.onCleared()
     }
 
     private fun editPage(change: (ScanPage) -> ScanPage) {

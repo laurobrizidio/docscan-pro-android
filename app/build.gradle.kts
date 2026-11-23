@@ -40,4 +40,5 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.0")
     ksp("androidx.room:room-compiler:2.7.0")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
