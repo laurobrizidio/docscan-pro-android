@@ -59,6 +59,7 @@ class ImportPagesTest {
         override suspend fun saveSession(session: EditorSession, cleanup: Boolean) = error("Unused")
         override suspend fun preview(page: ScanPage, original: Boolean) = error("Unused")
         override suspend fun thumbnail(pageId: String) = error("Unused")
+        override suspend fun estimateSizes(pages: List<ScanPage>, qualities: List<PdfQuality>) = error("Unused")
         override suspend fun export(pages: List<ScanPage>, options: PdfOptions, destination: String, onPageSaved: (Int) -> Unit) =
             error("Unused")
         override suspend fun prepareShare(pages: List<ScanPage>, options: PdfOptions, onPageSaved: (Int) -> Unit) =

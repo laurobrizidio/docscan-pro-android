@@ -7,6 +7,7 @@ import br.com.docscan.data.imaging.PageRenderer
 import br.com.docscan.domain.Draft
 import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.PdfOptions
+import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
@@ -86,6 +87,9 @@ internal class LocalScanRepository(
             null
         }
     }
+
+    override suspend fun estimateSizes(pages: List<ScanPage>, qualities: List<PdfQuality>): Map<PdfQuality, Long> =
+        pdfFiles.estimate(pages, { imageFile(it.id) }, qualities)
 
     override suspend fun export(
         pages: List<ScanPage>,

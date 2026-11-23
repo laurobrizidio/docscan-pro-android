@@ -13,6 +13,7 @@ interface ScanRepository<Preview> {
     suspend fun detectFrame(page: ScanPage): DocumentQuad?
     suspend fun preview(page: ScanPage, original: Boolean): Preview
     suspend fun thumbnail(pageId: String): Preview?
+    suspend fun estimateSizes(pages: List<ScanPage>, qualities: List<PdfQuality>): Map<PdfQuality, Long>
     suspend fun export(pages: List<ScanPage>, options: PdfOptions, destination: String, onPageSaved: (Int) -> Unit)
     suspend fun prepareShare(
         pages: List<ScanPage>,
