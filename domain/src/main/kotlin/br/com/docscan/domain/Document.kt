@@ -33,9 +33,9 @@ class InvalidDocumentName(val reason: DocumentNameError) : IllegalArgumentExcept
 fun documentNameKey(name: String): String =
     Normalizer.normalize(name.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
-fun defaultDocumentName(now: Long, timeZone: TimeZone = TimeZone.getDefault()): String {
+fun defaultDocumentName(now: Long, timeZone: TimeZone = TimeZone.getDefault(), prefix: String = "DocScan"): String {
     val format = SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.ROOT).apply { this.timeZone = timeZone }
-    return "DocScan ${format.format(Date(now))}"
+    return "$prefix ${format.format(Date(now))}"
 }
 
 fun availableDocumentName(base: String, used: Iterable<String>): String {
