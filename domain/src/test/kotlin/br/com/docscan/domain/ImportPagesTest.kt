@@ -41,13 +41,23 @@ class ImportPagesTest {
         assertEquals(1, result.aboveLimit)
     }
 
-    private class ImportRepository : ScanRepository<Unit> {
+    internal class ImportRepository : ScanRepository<Unit> {
         val quad = DocumentQuad(PagePoint(.1f, .1f), PagePoint(.9f, .1f), PagePoint(.9f, .9f), PagePoint(.1f, .9f))
         var detections = 0
+        val pdfPageCounts = mutableMapOf<String, Int>()
+        val reads = mutableListOf<String>()
 
         override suspend fun importImage(source: String): ScanPage {
+            reads += source
             if (source == "invalid") throw IOException()
             return ScanPage(source)
+        }
+
+        override suspend fun importPdf(source: String, limit: Int): PdfImport {
+            reads += source
+            if (source == "protected") throw ProtectedPdfException()
+            val total = pdfPageCounts[source] ?: throw IOException()
+            return PdfImport(List(minOf(total, limit)) { ScanPage("$source-${it + 1}", quad = quad) }, total)
         }
 
         override suspend fun detectFrame(page: ScanPage): DocumentQuad {
