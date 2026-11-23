@@ -89,6 +89,7 @@ internal fun HomeScreen(
     startScanner: () -> Unit,
     pickImages: () -> Unit,
     startIdCard: () -> Unit,
+    pickFiles: () -> Unit,
     resumeEditor: () -> Unit,
     openDocument: (Document) -> Unit,
     deleteDocuments: (Set<String>) -> Unit,
@@ -181,7 +182,7 @@ internal fun HomeScreen(
                             LibraryShortcut("Usar câmera", Glyph.CAMERA, ready, startScanner, Modifier.weight(1f))
                             LibraryShortcut("Importar imagens", Glyph.IMAGE, ready, pickImages, Modifier.weight(1f))
                             LibraryShortcut("Cartão de ID", Glyph.ID, ready, startIdCard, Modifier.weight(1f))
-                            Spacer(Modifier.weight(1f))
+                            LibraryShortcut("Importar arquivos", Glyph.PDF, ready, pickFiles, Modifier.weight(1f))
                         }
                         if (canResume) {
                             OutlinedButton(onClick = resumeEditor, enabled = ready) { Text("Continuar edição") }

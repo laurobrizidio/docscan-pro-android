@@ -71,6 +71,7 @@ internal fun ScanScreen(
     toggleTheme: () -> Unit,
     startScanner: () -> Unit,
     pickImages: () -> Unit,
+    pickFiles: () -> Unit,
     savePdf: () -> Unit,
     exportPdf: () -> Unit,
     goHome: () -> Unit,
@@ -160,6 +161,12 @@ internal fun ScanScreen(
                                         leadingIcon = { ScanGlyph(Glyph.IMAGE) },
                                         onClick = { showAdd = false; pickImages() },
                                     )
+                                    DropdownMenuItem(
+                                        text = { Text("Importar arquivos") },
+                                        leadingIcon = { ScanGlyph(Glyph.PDF) },
+                                        enabled = canAdd,
+                                        onClick = { showAdd = false; pickFiles() },
+                                    )
                                 }
                             }
                             OutlinedButton(
@@ -200,7 +207,7 @@ internal fun ScanScreen(
                         }
                     }
                     page == null && state.operation != Operation.LOADING ->
-                        EmptyScanner(ready, startScanner, pickImages)
+                        EmptyScanner(ready, startScanner, pickImages, pickFiles)
                     page != null -> Editor(
                         state, page, wide, previewHeight, viewModel,
                         adjustments = { showAdjustments = true },
@@ -260,7 +267,7 @@ internal fun CurrentOperation(operation: Operation, done: Int, total: Int) {
 }
 
 @Composable
-private fun EmptyScanner(enabled: Boolean, startScanner: () -> Unit, pickImages: () -> Unit) {
+private fun EmptyScanner(enabled: Boolean, startScanner: () -> Unit, pickImages: () -> Unit, pickFiles: () -> Unit) {
     Column(
         Modifier.fillMaxSize().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -303,6 +310,15 @@ private fun EmptyScanner(enabled: Boolean, startScanner: () -> Unit, pickImages:
             ScanGlyph(Glyph.IMAGE)
             Spacer(Modifier.width(9.dp))
             Text("Importar imagens")
+        }
+        Spacer(Modifier.height(9.dp))
+        OutlinedButton(
+            onClick = pickFiles, enabled = enabled,
+            modifier = Modifier.widthIn(max = 430.dp).fillMaxWidth().height(54.dp),
+        ) {
+            ScanGlyph(Glyph.PDF)
+            Spacer(Modifier.width(9.dp))
+            Text("Importar arquivos")
         }
         Spacer(Modifier.height(22.dp))
         Text("Processamento no aparelho", color = MaterialTheme.colorScheme.onSurfaceVariant, style = specStyle)

@@ -1,13 +1,16 @@
 package br.com.docscan.ui
 
 import android.content.ActivityNotFoundException
+import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
+import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -27,11 +30,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import br.com.docscan.domain.ImageOrigin
+import br.com.docscan.domain.ImportSource
 import br.com.docscan.domain.MAX_PAGES
 import br.com.docscan.domain.Orientation
 import br.com.docscan.domain.Paper
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.PdfQuality
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private const val PDF_MIME_TYPE = "application/pdf"
+private val pdfNameExtension = Regex("""(?i)(?:\.pdf\s*)+$""")
 
 @Composable
 internal fun ScanRoute(
@@ -53,6 +62,7 @@ internal fun ScanRoute(
     var newDocument by rememberSaveable { mutableStateOf(false) }
     var confirmSwitch by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingImages by rememberSaveable { mutableStateOf<List<String>>(arrayListOf()) }
+    var pendingFiles by rememberSaveable(stateSaver = importSourcesSaver) { mutableStateOf(emptyList<ImportSource>()) }
     var imageOrigin by rememberSaveable { mutableStateOf(ImageOrigin.GALLERY) }
     var destination by rememberSaveable { mutableStateOf<String?>(null) }
     var exportOptions by rememberSaveable(stateSaver = pdfOptionsSaver) { mutableStateOf(PdfOptions()) }
@@ -76,7 +86,20 @@ internal fun ScanRoute(
             pendingImages = arrayListOf(uri.toString())
         }
     }
-    val createPdf = rememberLauncherForActivityResult(CreateDocument("application/pdf")) { uri ->
+    val resolver = activity.contentResolver
+    val files = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            pendingFiles = uris.map { uri ->
+                val type = try {
+                    resolver.getType(uri)
+                } catch (_: SecurityException) {
+                    null
+                }
+                ImportSource(uri.toString(), type == PDF_MIME_TYPE)
+            }
+        }
+    }
+    val createPdf = rememberLauncherForActivityResult(CreateDocument(PDF_MIME_TYPE)) { uri ->
         if (uri != null) destination = uri.toString()
     }
 
@@ -108,6 +131,7 @@ internal fun ScanRoute(
             }
         }
     }
+    LaunchedEffect(viewModel) { viewModel.openImportedFiles.collect { editing = true } }
     LaunchedEffect(pendingImages, state.operation, state.draftError, idStep) {
         if (pendingImages.isNotEmpty() && state.operation == null && !state.draftError) {
             val sources = pendingImages.toList()
@@ -121,6 +145,21 @@ internal fun ScanRoute(
                 }
                 null -> viewModel.import(sources, imageOrigin, newDocument) { editing = true }
             }
+        }
+    }
+    LaunchedEffect(pendingFiles, state.operation, state.draftError) {
+        if (pendingFiles.isNotEmpty() && state.operation == null && !state.draftError) {
+            val sources = pendingFiles
+            val createNew = newDocument
+            val names = if (createNew) {
+                withContext(Dispatchers.IO) {
+                    sources.filter(ImportSource::isPdf).mapNotNull { file ->
+                        resolver.pdfDisplayName(Uri.parse(file.uri))?.let { file.uri to it }
+                    }.toMap()
+                }
+            } else emptyMap()
+            pendingFiles = emptyList()
+            viewModel.importFiles(sources, createNew, names)
         }
     }
     LaunchedEffect(destination, state.operation, state.draftError) {
@@ -149,6 +188,15 @@ internal fun ScanRoute(
         }
     }
 
+    fun pickFiles(new: Boolean) {
+        newDocument = new
+        try {
+            files.launch(arrayOf(PDF_MIME_TYPE, "image/*"))
+        } catch (_: ActivityNotFoundException) {
+            viewModel.tell("O seletor de arquivos está indisponível.")
+        }
+    }
+
     fun exportPdf() {
         exportOptions = state.options
         try {
@@ -159,7 +207,7 @@ internal fun ScanRoute(
     }
 
     fun open(uri: String) {
-        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(uri), "application/pdf")
+        val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(uri), PDF_MIME_TYPE)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {
             activity.startActivity(intent)
@@ -202,6 +250,7 @@ internal fun ScanRoute(
                 toggleTheme = { darkOverride = !dark },
                 startScanner = { capturePages(new = false) },
                 pickImages = { pickImages(new = false) },
+                pickFiles = { pickFiles(new = false) },
                 savePdf = { viewModel.saveToLibrary { editing = false } },
                 exportPdf = ::exportPdf,
                 goHome = { editing = false },
@@ -220,6 +269,7 @@ internal fun ScanRoute(
                 startScanner = { replaceDraft { capturePages(new = true) } },
                 pickImages = { replaceDraft { pickImages(new = true) } },
                 startIdCard = { replaceDraft { idStep = IdStep.FRONT } },
+                pickFiles = { replaceDraft { pickFiles(new = true) } },
                 resumeEditor = { editing = true },
                 openDocument = { document ->
                     if (document.id == state.session.documentId && state.session.dirty) editing = true
@@ -265,6 +315,26 @@ internal fun ScanRoute(
         PdfShareSheet(library.sharedPdfs, onDismiss = home::closeShare, onError = viewModel::tell)
     }
 }
+
+private fun ContentResolver.pdfDisplayName(uri: Uri): String? {
+    return try {
+        query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) {
+                cursor.getString(index)?.trim()?.replace(pdfNameExtension, "")?.trimEnd()
+            } else null
+        }
+    } catch (_: SecurityException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+}
+
+private val importSourcesSaver = listSaver<List<ImportSource>, Any>(
+    save = { files -> files.flatMap { listOf(it.uri, it.isPdf) } },
+    restore = { values -> values.chunked(2).map { ImportSource(it[0] as String, it[1] as Boolean) } },
+)
 
 private val pdfOptionsSaver = listSaver<PdfOptions, Any>(
     save = { listOf(it.name, it.paper.name, it.orientation.name, it.marginMm, it.quality.name) },
