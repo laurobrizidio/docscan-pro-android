@@ -36,6 +36,15 @@ class DocumentTest {
     }
 
     @Test
+    fun longAutomaticNamesHaveRoomForASuffixAndCanBeSaved() {
+        val base = "a".repeat(110)
+        val used = listOf(base.take(100), "${base.take(96)} (2)")
+        val name = availableDocumentName(base, used)
+        assertEquals("${base.take(96)} (3)", name)
+        assertEquals(name, validatedDocumentName(name, used))
+    }
+
+    @Test
     fun searchKeysIgnoreCaseAndAccentsAndKeepPunctuationLiteral() {
         assertEquals("cartao 100%", documentNameKey("  CARTÃO 100%  "))
     }

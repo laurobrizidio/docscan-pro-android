@@ -30,6 +30,8 @@ enum class DocumentNameError { EMPTY, DUPLICATE, TOO_LONG }
 
 class InvalidDocumentName(val reason: DocumentNameError) : IllegalArgumentException(reason.name)
 
+private const val MAX_DOCUMENT_NAME_LENGTH = 100
+
 fun documentNameKey(name: String): String =
     Normalizer.normalize(name.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
@@ -40,16 +42,21 @@ fun defaultDocumentName(now: Long, timeZone: TimeZone = TimeZone.getDefault(), p
 
 fun availableDocumentName(base: String, used: Iterable<String>): String {
     val keys = used.mapTo(mutableSetOf(), ::documentNameKey)
-    if (documentNameKey(base) !in keys) return base
+    val preferred = base.take(MAX_DOCUMENT_NAME_LENGTH).trimEnd()
+    if (documentNameKey(preferred) !in keys) return preferred
     var number = 2
-    while (documentNameKey("$base ($number)") in keys) number++
-    return "$base ($number)"
+    while (true) {
+        val suffix = " ($number)"
+        val name = preferred.take(MAX_DOCUMENT_NAME_LENGTH - suffix.length).trimEnd() + suffix
+        if (documentNameKey(name) !in keys) return name
+        number++
+    }
 }
 
 fun validatedDocumentName(requested: String, used: Iterable<String>): String {
     val name = requested.trim().replace(Regex("(?i)\\.pdf$"), "").trim()
     if (name.isEmpty()) throw InvalidDocumentName(DocumentNameError.EMPTY)
-    if (name.length > 100) throw InvalidDocumentName(DocumentNameError.TOO_LONG)
+    if (name.length > MAX_DOCUMENT_NAME_LENGTH) throw InvalidDocumentName(DocumentNameError.TOO_LONG)
     if (used.any { documentNameKey(it) == documentNameKey(name) }) throw InvalidDocumentName(DocumentNameError.DUPLICATE)
     return name
 }

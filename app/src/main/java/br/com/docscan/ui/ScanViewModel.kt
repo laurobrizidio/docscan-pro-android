@@ -10,7 +10,10 @@ import br.com.docscan.domain.DocumentRepository
 import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.ImageOrigin
+import br.com.docscan.domain.ImportFiles
 import br.com.docscan.domain.ImportPages
+import br.com.docscan.domain.ImportResult
+import br.com.docscan.domain.ImportSource
 import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
@@ -81,6 +84,8 @@ internal class ScanViewModel(
     val messages = feedback.receiveAsFlow()
     private val idCardResults = Channel<IdCardResult>(Channel.BUFFERED)
     val idCardTransitions = idCardResults.receiveAsFlow()
+    private val fileImportNavigation = Channel<Unit>(Channel.CONFLATED)
+    val openImportedFiles = fileImportNavigation.receiveAsFlow()
 
     init {
         restore()
@@ -133,24 +138,76 @@ internal class ScanViewModel(
     }
 
     fun import(sources: List<String>, origin: ImageOrigin, newDocument: Boolean, onImported: () -> Unit) {
+        if (sources.isEmpty()) return
         val operation = if (origin == ImageOrigin.SCANNER) Operation.ADDING_SCANS else Operation.IMPORTING
-        if (sources.isEmpty() || !begin(operation)) return
+        importIntoDraft(
+            operation = operation,
+            newDocument = newDocument,
+            failureMessage = "Não foi possível adicionar as imagens.",
+            unreadableMessage = { "$it imagem(ns) não puderam ser abertas." },
+            onImported = onImported,
+        ) { available -> ImportPages(repository)(sources, available, origin) }
+    }
+
+    fun importFiles(
+        files: List<ImportSource>,
+        newDocument: Boolean,
+        suggestedNames: Map<String, String> = emptyMap(),
+        onImported: () -> Unit = { fileImportNavigation.trySend(Unit) },
+    ) {
+        if (files.isEmpty()) return
+        importIntoDraft(
+            operation = Operation.IMPORTING,
+            newDocument = newDocument,
+            failureMessage = "Não foi possível importar os arquivos.",
+            unreadableMessage = { "$it arquivo(s) não puderam ser abertos." },
+            suggestedNames = suggestedNames,
+            onImported = onImported,
+        ) { available -> ImportFiles(repository)(files, available) }
+    }
+
+    private fun importIntoDraft(
+        operation: Operation,
+        newDocument: Boolean,
+        failureMessage: String,
+        unreadableMessage: (Int) -> String,
+        suggestedNames: Map<String, String> = emptyMap(),
+        onImported: () -> Unit,
+        readFiles: suspend (Int) -> ImportResult,
+    ) {
+        if (!begin(operation)) return
         viewModelScope.launch {
             var imported = false
             try {
-                safely("Não foi possível adicionar as imagens.") {
-                    val base = if (newDocument) EditorSession() else state.value.session
-                    val available = MAX_PAGES - base.draft.pages.size
-                    val result = ImportPages(repository)(sources, available, origin)
-                    if (result.pages.isNotEmpty()) {
-                        val added = base.copy(draft = base.draft.add(result.pages), dirty = true)
-                        workspaceLock.withLock {
-                            repository.saveSession(added, cleanup = newDocument)
-                            updateSession(added)
+                safely(failureMessage) {
+                    val result = workspaceLock.withLock {
+                        val base = if (newDocument) EditorSession() else state.value.session
+                        try {
+                            val batch = readFiles(MAX_PAGES - base.draft.pages.size)
+                            if (batch.pages.isNotEmpty()) {
+                                val suggestion = batch.importedPdfUri?.let(suggestedNames::get)
+                                val options = if (newDocument && base.options.name.isBlank() && !suggestion.isNullOrBlank()) {
+                                    val used = documents.observeAll().first().map { it.name }
+                                    base.options.copy(name = availableDocumentName(suggestion, used))
+                                } else base.options
+                                val added = base.copy(draft = base.draft.add(batch.pages), options = options, dirty = true)
+                                repository.saveSession(added, cleanup = newDocument)
+                                updateSession(added)
+                            }
+                            batch
+                        } catch (error: Throwable) {
+                            withContext(NonCancellable) {
+                                // Loading the saved draft prunes JPEGs that the import did not commit.
+                                runCatching { repository.loadSession() }
+                                    .exceptionOrNull()?.let(error::addSuppressed)
+                            }
+                            throw error
                         }
-                        imported = true
                     }
-                    if (result.unreadable > 0) tell("${result.unreadable} imagem(ns) não puderam ser abertas.")
+                    imported = result.pages.isNotEmpty()
+                    if (result.protectedPdfs > 0) tell("PDF protegido por senha. Remova a senha e tente novamente.")
+                    val unreadable = result.unreadable - result.protectedPdfs
+                    if (unreadable > 0) tell(unreadableMessage(unreadable))
                     if (result.aboveLimit > 0) tell("O documento aceita até $MAX_PAGES páginas.")
                 }
             } finally {
