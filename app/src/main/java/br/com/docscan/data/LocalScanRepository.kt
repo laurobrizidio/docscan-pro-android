@@ -2,19 +2,30 @@ package br.com.docscan.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import br.com.docscan.data.imaging.PageRenderer
 import br.com.docscan.domain.Draft
 import br.com.docscan.domain.EditorSession
+import br.com.docscan.domain.Filter
+import br.com.docscan.domain.ID_CARD_RATIO
+import br.com.docscan.domain.Look
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.PdfQuality
+import br.com.docscan.domain.PixelRect
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
+import br.com.docscan.domain.idSheetLayout
 import java.io.File
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 internal class LocalScanRepository(
@@ -69,6 +80,74 @@ internal class LocalScanRepository(
         } catch (error: Exception) {
             file.delete()
             throw error
+        }
+    }
+
+    override suspend fun composeIdSheet(front: ScanPage, back: ScanPage?): ScanPage {
+        val layout = idSheetLayout(back != null)
+        val page = ScanPage(UUID.randomUUID().toString(), look = Look(Filter.ORIGINAL, useMl = false))
+        val file = imageFile(page.id)
+        try {
+            withContext(Dispatchers.Default) {
+                val sheet = Bitmap.createBitmap(layout.sheetW, layout.sheetH, Bitmap.Config.ARGB_8888)
+                try {
+                    sheet.eraseColor(Color.WHITE)
+                    val canvas = Canvas(sheet)
+                    canvas.drawIdCard(front, layout.front, page.look)
+                    if (back != null) canvas.drawIdCard(back, requireNotNull(layout.back), page.look)
+                    withContext(Dispatchers.IO) {
+                        requireDirectory()
+                        file.outputStream().buffered().use { output ->
+                            if (!sheet.compress(Bitmap.CompressFormat.JPEG, 95, output)) {
+                                throw IOException("Falha ao gravar a folha do cartão")
+                            }
+                        }
+                    }
+                } finally {
+                    sheet.recycle()
+                }
+            }
+        } catch (error: Exception) {
+            withContext(NonCancellable + Dispatchers.IO) { file.delete() }
+            throw error
+        }
+        return page
+    }
+
+    private suspend fun Canvas.drawIdCard(page: ScanPage, rect: PixelRect, look: Look) {
+        val rendered = renderer.render(imageFile(page.id), page.copy(look = look), 1400)
+        var cropped = rendered
+        var landscape = rendered
+        try {
+            cropped = PageRenderer.crop(rendered, page.crop)
+            landscape = if (cropped.height > cropped.width) {
+                val rotate = Matrix().apply { postRotate(90f) }
+                Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, rotate, true)
+            } else cropped
+
+            val frame = RectF(rect.x.toFloat(), rect.y.toFloat(), (rect.x + rect.w).toFloat(), (rect.y + rect.h).toFloat())
+            val ratio = landscape.width.toFloat() / landscape.height
+            val destination = if (ratio in ID_CARD_RATIO * 0.92f..ID_CARD_RATIO * 1.08f) {
+                frame
+            } else {
+                val scale = minOf(rect.w.toFloat() / landscape.width, rect.h.toFloat() / landscape.height)
+                val halfWidth = landscape.width * scale / 2
+                val halfHeight = landscape.height * scale / 2
+                RectF(
+                    frame.centerX() - halfWidth, frame.centerY() - halfHeight,
+                    frame.centerX() + halfWidth, frame.centerY() + halfHeight,
+                )
+            }
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            drawBitmap(landscape, null, destination, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 2f
+            paint.color = 0xFFBDBDBD.toInt()
+            drawRect(frame, paint)
+        } finally {
+            if (landscape !== rendered && landscape !== cropped) landscape.recycle()
+            if (cropped !== rendered) cropped.recycle()
+            rendered.recycle()
         }
     }
 

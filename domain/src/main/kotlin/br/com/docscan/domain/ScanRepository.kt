@@ -10,6 +10,7 @@ interface ScanRepository<Preview> {
     suspend fun loadSession(): EditorSession
     suspend fun saveSession(session: EditorSession, cleanup: Boolean = false)
     suspend fun importImage(source: String): ScanPage
+    suspend fun composeIdSheet(front: ScanPage, back: ScanPage?): ScanPage
     suspend fun detectFrame(page: ScanPage): DocumentQuad?
     suspend fun preview(page: ScanPage, original: Boolean): Preview
     suspend fun thumbnail(pageId: String): Preview?

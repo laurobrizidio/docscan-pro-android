@@ -57,6 +57,7 @@ class ImportPagesTest {
 
         override suspend fun loadSession() = error("Unused")
         override suspend fun saveSession(session: EditorSession, cleanup: Boolean) = error("Unused")
+        override suspend fun composeIdSheet(front: ScanPage, back: ScanPage?) = error("Unused")
         override suspend fun preview(page: ScanPage, original: Boolean) = error("Unused")
         override suspend fun thumbnail(pageId: String) = error("Unused")
         override suspend fun estimateSizes(pages: List<ScanPage>, qualities: List<PdfQuality>) = error("Unused")
