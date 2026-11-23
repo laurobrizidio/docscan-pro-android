@@ -242,6 +242,8 @@ private fun CurrentOperation(operation: Operation, done: Int, total: Int) {
         Operation.OPENING -> "Abrindo documento"
         Operation.IMPORTING -> "Adicionando e enquadrando imagens"
         Operation.ADDING_SCANS -> "Adicionando páginas digitalizadas"
+        Operation.COMPOSING -> "Montando página…"
+        Operation.DISCARDING -> "Descartando rascunho"
         Operation.DETECTING -> "Procurando bordas"
         Operation.SAVING -> "Salvando na biblioteca · $done de $total"
         Operation.EXPORTING -> "Gerando PDF · $done de $total"

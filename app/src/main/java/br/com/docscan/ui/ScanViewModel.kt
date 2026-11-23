@@ -14,29 +14,38 @@ import br.com.docscan.domain.ImportPages
 import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
+import br.com.docscan.domain.Orientation
+import br.com.docscan.domain.Paper
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
+import br.com.docscan.domain.availableDocumentName
+import br.com.docscan.domain.defaultDocumentName
 import br.com.docscan.domain.qualityLadder
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
-internal enum class Operation { LOADING, OPENING, IMPORTING, ADDING_SCANS, DETECTING, SAVING, EXPORTING, SHARING }
+internal enum class Operation {
+    LOADING, OPENING, IMPORTING, ADDING_SCANS, COMPOSING, DISCARDING, DETECTING, SAVING, EXPORTING, SHARING,
+}
 
 internal data class ScanUiState(
     val session: EditorSession = EditorSession(),
@@ -123,6 +132,7 @@ internal class ScanViewModel(
         val operation = if (origin == ImageOrigin.SCANNER) Operation.ADDING_SCANS else Operation.IMPORTING
         if (sources.isEmpty() || !begin(operation)) return
         viewModelScope.launch {
+            var imported = false
             try {
                 safely("Não foi possível adicionar as imagens.") {
                     val base = if (newDocument) EditorSession() else state.value.session
@@ -134,10 +144,69 @@ internal class ScanViewModel(
                             repository.saveSession(added, cleanup = newDocument)
                             updateSession(added)
                         }
-                        onImported()
+                        imported = true
                     }
                     if (result.unreadable > 0) tell("${result.unreadable} imagem(ns) não puderam ser abertas.")
                     if (result.aboveLimit > 0) tell("O documento aceita até $MAX_PAGES páginas.")
+                }
+            } finally {
+                model.update { it.copy(operation = null) }
+            }
+            if (imported) onImported()
+        }
+    }
+
+    fun composeIdCard(onDone: () -> Unit) {
+        if (state.value.draft.pages.size !in 1..2 || !begin(Operation.COMPOSING)) return
+        viewModelScope.launch {
+            try {
+                safely("Não foi possível montar o cartão de ID.") {
+                    workspaceLock.withLock {
+                        val pages = state.value.draft.pages
+                        val suggested = availableDocumentName(
+                            defaultDocumentName(System.currentTimeMillis(), prefix = "Cartão de ID"),
+                            documents.observeAll().first().map { it.name },
+                        )
+                        val sheet = repository.composeIdSheet(pages.first(), pages.getOrNull(1))
+                        val composed = EditorSession(
+                            draft = Draft(listOf(sheet), sheet.id),
+                            options = PdfOptions(suggested, Paper.A4, Orientation.PORTRAIT, 0, PdfQuality.HIGH),
+                            dirty = true,
+                        )
+                        withContext(NonCancellable) {
+                            try {
+                                repository.saveSession(composed, cleanup = true)
+                            } catch (error: IOException) {
+                                // Reloading the stored draft also prunes an unreferenced sheet.
+                                try {
+                                    repository.loadSession()
+                                } catch (cleanupError: IOException) {
+                                    error.addSuppressed(cleanupError)
+                                }
+                                throw error
+                            }
+                            updateSession(composed)
+                        }
+                    }
+                    onDone()
+                }
+            } finally {
+                model.update { it.copy(operation = null) }
+            }
+        }
+    }
+
+    fun discardSession(onDiscarded: () -> Unit = {}) {
+        if (!begin(Operation.DISCARDING)) return
+        viewModelScope.launch {
+            try {
+                safely("Não foi possível descartar o rascunho.") {
+                    workspaceLock.withLock {
+                        val empty = EditorSession()
+                        repository.saveSession(empty, cleanup = true)
+                        updateSession(empty)
+                    }
+                    onDiscarded()
                 }
             } finally {
                 model.update { it.copy(operation = null) }
