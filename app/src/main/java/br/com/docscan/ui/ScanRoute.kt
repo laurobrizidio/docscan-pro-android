@@ -48,6 +48,8 @@ internal fun ScanRoute(
     SideEffect { onThemeChanged(dark) }
     val snackbars = remember { SnackbarHostState() }
     var editing by rememberSaveable { mutableStateOf(false) }
+    var idStep by rememberSaveable { mutableStateOf<IdStep?>(null) }
+    var confirmDiscardId by rememberSaveable { mutableStateOf(false) }
     var newDocument by rememberSaveable { mutableStateOf(false) }
     var confirmSwitch by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingImages by rememberSaveable { mutableStateOf<List<String>>(arrayListOf()) }
@@ -68,17 +70,57 @@ internal fun ScanRoute(
             pendingImages = ArrayList(uris.map(Uri::toString))
         }
     }
+    val idGallery = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+        if (uri != null) {
+            imageOrigin = ImageOrigin.GALLERY
+            pendingImages = arrayListOf(uri.toString())
+        }
+    }
     val createPdf = rememberLauncherForActivityResult(CreateDocument("application/pdf")) { uri ->
         if (uri != null) destination = uri.toString()
     }
 
+    fun composeIdCard() {
+        viewModel.composeIdCard { viewModel.finishIdCardStep(IdCardResult.COMPOSED) }
+    }
+
+    fun discardIdCard() {
+        pendingImages = arrayListOf()
+        viewModel.discardSession { viewModel.finishIdCardStep(IdCardResult.DISCARDED) }
+    }
+
+    fun cancelIdCard() {
+        if (capture.preparing || state.operation != null) return
+        if (idStep == IdStep.BACK) confirmDiscardId = true else discardIdCard()
+    }
+
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbars.showSnackbar(it) } }
     LaunchedEffect(home) { home.messages.collect { snackbars.showSnackbar(it) } }
-    LaunchedEffect(pendingImages, state.operation, state.draftError) {
+    LaunchedEffect(viewModel) {
+        viewModel.idCardTransitions.collect { result ->
+            when (result) {
+                IdCardResult.FRONT_IMPORTED -> idStep = IdStep.BACK
+                IdCardResult.COMPOSED -> {
+                    idStep = null
+                    editing = true
+                }
+                IdCardResult.DISCARDED -> idStep = null
+            }
+        }
+    }
+    LaunchedEffect(pendingImages, state.operation, state.draftError, idStep) {
         if (pendingImages.isNotEmpty() && state.operation == null && !state.draftError) {
             val sources = pendingImages.toList()
             pendingImages = arrayListOf()
-            viewModel.import(sources, imageOrigin, newDocument) { editing = true }
+            when (idStep) {
+                IdStep.FRONT -> viewModel.import(sources.take(1), imageOrigin, newDocument = true) {
+                    viewModel.finishIdCardStep(IdCardResult.FRONT_IMPORTED)
+                }
+                IdStep.BACK -> if (state.draft.pages.size == 1) {
+                    viewModel.import(sources.take(1), imageOrigin, newDocument = false, onImported = ::composeIdCard)
+                }
+                null -> viewModel.import(sources, imageOrigin, newDocument) { editing = true }
+            }
         }
     }
     LaunchedEffect(destination, state.operation, state.draftError) {
@@ -129,8 +171,29 @@ internal fun ScanRoute(
     }
 
     ScanTheme(dark) {
-        BackHandler(editing) { if (state.operation == null) editing = false }
-        if (editing) {
+        val step = idStep
+        BackHandler(editing || step != null) {
+            if (step != null) cancelIdCard() else if (state.operation == null) editing = false
+        }
+        if (step != null) {
+            IdCardGuide(
+                step = step,
+                preparing = capture.preparing,
+                operation = state.operation,
+                hasBack = step == IdStep.BACK && state.draft.pages.size == 2,
+                snackbars = snackbars,
+                onCamera = { capture.start(1) },
+                onGallery = {
+                    try {
+                        idGallery.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                    } catch (_: ActivityNotFoundException) {
+                        viewModel.tell("O seletor de imagens está indisponível.")
+                    }
+                },
+                onFrontOnly = ::composeIdCard,
+                onCancel = ::cancelIdCard,
+            )
+        } else if (editing) {
             ScanScreen(
                 state = state,
                 viewModel = viewModel,
@@ -156,6 +219,7 @@ internal fun ScanRoute(
                 canResume = state.session.dirty && state.draft.pages.isNotEmpty(),
                 startScanner = { replaceDraft { capturePages(new = true) } },
                 pickImages = { replaceDraft { pickImages(new = true) } },
+                startIdCard = { replaceDraft { idStep = IdStep.FRONT } },
                 resumeEditor = { editing = true },
                 openDocument = { document ->
                     if (document.id == state.session.documentId && state.session.dirty) editing = true
@@ -176,13 +240,23 @@ internal fun ScanRoute(
                 dismissButton = { TextButton(onClick = { confirmSwitch = null }) { Text("Cancelar") } },
             )
         }
+        if (confirmDiscardId) {
+            AlertDialog(
+                onDismissRequest = { confirmDiscardId = false },
+                title = { Text("Descartar o cartão?") },
+                confirmButton = {
+                    Button(onClick = { confirmDiscardId = false; discardIdCard() }) { Text("Descartar") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDiscardId = false }) { Text("Continuar captura") } },
+            )
+        }
         if (capture.preparing) {
             ScanProgress(
                 title = "Preparando scanner",
                 details = "Na primeira abertura, o Google Play Services pode baixar o scanner.",
                 onCancel = capture.cancel,
             )
-        } else if (state.operation == Operation.ADDING_SCANS) {
+        } else if (step == null && state.operation == Operation.ADDING_SCANS) {
             ScanProgress(title = "Adicionando páginas digitalizadas")
         }
         state.sharePdf?.let { pdf ->

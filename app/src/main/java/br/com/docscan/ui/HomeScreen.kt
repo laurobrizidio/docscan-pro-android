@@ -8,6 +8,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -74,7 +76,7 @@ import java.util.Locale
 
 private const val RECENT_LIMIT = 8
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun HomeScreen(
     state: HomeUiState,
@@ -86,6 +88,7 @@ internal fun HomeScreen(
     canResume: Boolean,
     startScanner: () -> Unit,
     pickImages: () -> Unit,
+    startIdCard: () -> Unit,
     resumeEditor: () -> Unit,
     openDocument: (Document) -> Unit,
     deleteDocuments: (Set<String>) -> Unit,
@@ -169,9 +172,16 @@ internal fun HomeScreen(
                 }
                 if (!state.showAll && !searching && !selecting) item("entry") {
                     Column(Modifier.padding(top = 9.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FlowRow(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            maxItemsInEachRow = 2,
+                        ) {
                             LibraryShortcut("Usar câmera", Glyph.CAMERA, ready, startScanner, Modifier.weight(1f))
                             LibraryShortcut("Importar imagens", Glyph.IMAGE, ready, pickImages, Modifier.weight(1f))
+                            LibraryShortcut("Cartão de ID", Glyph.ID, ready, startIdCard, Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f))
                         }
                         if (canResume) {
                             OutlinedButton(onClick = resumeEditor, enabled = ready) { Text("Continuar edição") }

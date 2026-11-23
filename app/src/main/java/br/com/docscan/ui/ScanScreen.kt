@@ -235,7 +235,7 @@ internal fun BrandMark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CurrentOperation(operation: Operation, done: Int, total: Int) {
+internal fun CurrentOperation(operation: Operation, done: Int, total: Int) {
     val progress = if (total == 0) 0f else done.toFloat() / total
     val label = when (operation) {
         Operation.LOADING -> "Carregando rascunho"

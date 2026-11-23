@@ -47,6 +47,8 @@ internal enum class Operation {
     LOADING, OPENING, IMPORTING, ADDING_SCANS, COMPOSING, DISCARDING, DETECTING, SAVING, EXPORTING, SHARING,
 }
 
+internal enum class IdCardResult { FRONT_IMPORTED, COMPOSED, DISCARDED }
+
 internal data class ScanUiState(
     val session: EditorSession = EditorSession(),
     val operation: Operation? = Operation.LOADING,
@@ -77,6 +79,8 @@ internal class ScanViewModel(
     private var estimatesJob: Job? = null
     private val feedback = Channel<String>(Channel.BUFFERED)
     val messages = feedback.receiveAsFlow()
+    private val idCardResults = Channel<IdCardResult>(Channel.BUFFERED)
+    val idCardTransitions = idCardResults.receiveAsFlow()
 
     init {
         restore()
@@ -416,6 +420,10 @@ internal class ScanViewModel(
 
     fun tell(message: String) {
         feedback.trySend(message)
+    }
+
+    fun finishIdCardStep(result: IdCardResult) {
+        idCardResults.trySend(result)
     }
 
     private fun editPage(change: (ScanPage) -> ScanPage) {
