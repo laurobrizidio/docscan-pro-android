@@ -100,7 +100,17 @@ data class Draft(val pages: List<ScanPage> = emptyList(), val selectedId: String
 
 enum class Paper { A4, LETTER, FIT_IMAGE }
 enum class Orientation { AUTO, PORTRAIT, LANDSCAPE }
-enum class PdfQuality(val jpeg: Int) { COMPACT(60), BALANCED(82), HIGH(95) }
+enum class PdfQuality(val jpeg: Int, val maxSide: Int) {
+    COMPACT(60, 1600),
+    BALANCED(82, Int.MAX_VALUE),
+    HIGH(95, Int.MAX_VALUE),
+    MINIMAL(45, 1100),
+}
+
+val qualityLadder = listOf(PdfQuality.HIGH, PdfQuality.BALANCED, PdfQuality.COMPACT, PdfQuality.MINIMAL)
+
+fun bestQualityFor(targetBytes: Long, estimates: Map<PdfQuality, Long>): PdfQuality? =
+    qualityLadder.firstOrNull { quality -> estimates[quality]?.let { it <= targetBytes } == true }
 
 data class PdfOptions(
     val name: String = "",

@@ -71,6 +71,7 @@ internal fun PdfOptionsSheet(options: PdfOptions, change: (PdfOptions) -> Unit, 
                 PdfQuality.COMPACT -> "Compacta"
                 PdfQuality.BALANCED -> "Equilibrada"
                 PdfQuality.HIGH -> "Alta"
+                PdfQuality.MINIMAL -> "Mínima"
             }
         }) { change(options.copy(quality = it)) }
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Concluir") }
