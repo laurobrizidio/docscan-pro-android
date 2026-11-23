@@ -46,6 +46,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -84,6 +86,12 @@ internal fun ScanScreen(
     val ready = state.operation == null
     val canAdd = ready && state.draft.pages.size < MAX_PAGES
     val colors = MaterialTheme.colorScheme
+    LaunchedEffect(showOptions, state.draft.pages) {
+        if (showOptions) viewModel.estimateSizes() else viewModel.clearEstimates()
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.clearEstimates() }
+    }
 
     Scaffold(
         topBar = {
@@ -202,7 +210,9 @@ internal fun ScanScreen(
             }
         }
     }
-    if (showOptions) PdfOptionsSheet(state.options, viewModel::setPdfOptions, onDismiss = { showOptions = false })
+    if (showOptions) {
+        PdfOptionsSheet(state.options, state.sizeEstimates, viewModel::setPdfOptions, onDismiss = { showOptions = false })
+    }
     if (showAdjustments && page != null) {
         AdjustmentsSheet(page, state.draft.pages.size, viewModel, onDismiss = { showAdjustments = false })
     }

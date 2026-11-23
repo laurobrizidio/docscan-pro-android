@@ -9,6 +9,7 @@ Digitalize documentos com a câmera ou importe imagens da galeria, ajuste as pá
 - **Organização e rascunho.** Adicione até 60 páginas, altere a ordem ou remova uma imagem. O app guarda o rascunho no armazenamento privado e o recupera ao reabrir.
 - **Biblioteca.** O início mostra os documentos recentes com miniatura, nome, data e número de páginas. Busque por nome, reabra documentos para editar ou selecione vários para compartilhar ou excluir.
 - **PDF e compartilhamento.** Escolha papel A4, Carta ou tamanho da imagem, além de orientação, margens e qualidade. O botão **Compartilhar** gera o PDF direto do rascunho e mostra atalhos para WhatsApp, e-mail e Google Drive quando disponíveis. **Outros aplicativos** abre o seletor do Android.
+- **Compressão.** As opções do PDF mostram o tamanho estimado por qualidade. Escolha **Mínima** para gerar arquivos menores ou selecione uma meta de 1, 2, 5 ou 10 MB para usar a melhor qualidade que caiba na estimativa.
 
 ## Como usar
 

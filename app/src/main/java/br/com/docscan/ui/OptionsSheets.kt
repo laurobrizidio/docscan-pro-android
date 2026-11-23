@@ -1,5 +1,6 @@
 package br.com.docscan.ui
 
+import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -23,13 +24,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import br.com.docscan.domain.Filter
 import br.com.docscan.domain.Orientation
@@ -37,10 +42,33 @@ import br.com.docscan.domain.Paper
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
+import br.com.docscan.domain.bestQualityFor
+import br.com.docscan.domain.qualityLadder
 import kotlin.math.roundToInt
 
+private val pdfSizeTargets = listOf(null, 1_000_000L, 2_000_000L, 5_000_000L, 10_000_000L)
+
 @Composable
-internal fun PdfOptionsSheet(options: PdfOptions, change: (PdfOptions) -> Unit, onDismiss: () -> Unit) {
+internal fun PdfOptionsSheet(
+    options: PdfOptions,
+    estimates: Map<PdfQuality, Long>?,
+    change: (PdfOptions) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var target by rememberSaveable { mutableStateOf<Long?>(null) }
+    val bytes = target
+    val canEstimate = !estimates.isNullOrEmpty()
+    val best = if (bytes != null && estimates != null) bestQualityFor(bytes, estimates) else null
+    val exceedsTarget = bytes != null && canEstimate && best == null
+
+    LaunchedEffect(target, estimates) {
+        if (bytes != null && canEstimate) {
+            val choice = best ?: PdfQuality.MINIMAL
+            if (choice != options.quality) change(options.copy(quality = choice))
+        }
+    }
+
     EditorSheet(onDismiss) {
         Text("Opções do PDF", style = MaterialTheme.typography.headlineSmall)
         OutlinedTextField(
@@ -66,14 +94,37 @@ internal fun PdfOptionsSheet(options: PdfOptions, change: (PdfOptions) -> Unit, 
             }
         }) { change(options.copy(orientation = it)) }
         ChoiceGroup("Margem", listOf(0, 10, 20), options.marginMm, { "$it mm" }) { change(options.copy(marginMm = it)) }
-        ChoiceGroup("Qualidade", listOf(PdfQuality.COMPACT, PdfQuality.BALANCED, PdfQuality.HIGH), options.quality, {
-            when (it) {
+        ChoiceGroup("Qualidade", qualityLadder.asReversed(), options.quality, { quality ->
+            val label = when (quality) {
                 PdfQuality.COMPACT -> "Compacta"
                 PdfQuality.BALANCED -> "Equilibrada"
                 PdfQuality.HIGH -> "Alta"
                 PdfQuality.MINIMAL -> "Mínima"
             }
-        }) { change(options.copy(quality = it)) }
+            val size = estimates?.get(quality)
+            when {
+                size != null -> "$label · ~${Formatter.formatShortFileSize(context, size)}"
+                estimates == null -> "$label · …"
+                else -> label
+            }
+        }) { quality ->
+            target = null
+            change(options.copy(quality = quality))
+        }
+        Text("Mínima oferece ~94 dpi em A4. Texto pequeno pode ficar ilegível.", style = MaterialTheme.typography.bodySmall)
+        ChoiceGroup(
+            "Tamanho final",
+            pdfSizeTargets,
+            target,
+            label = { if (it == null) "Livre" else "até ${it / 1_000_000} MB" },
+            enabled = canEstimate,
+        ) { target = it }
+        if (exceedsTarget) {
+            estimates?.get(PdfQuality.MINIMAL)?.let { minimum ->
+                val formatted = Formatter.formatShortFileSize(context, minimum)
+                Text("Mesmo na qualidade mínima o PDF fica com ~$formatted.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Concluir") }
     }
 }
@@ -135,11 +186,18 @@ private fun EditorSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun <T> ChoiceGroup(title: String, values: List<T>, selected: T, label: (T) -> String, change: (T) -> Unit) {
+private fun <T> ChoiceGroup(
+    title: String,
+    values: List<T>,
+    selected: T,
+    label: (T) -> String,
+    enabled: Boolean = true,
+    change: (T) -> Unit,
+) {
     Column {
         Text(title, style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (value in values) FilterChip(selected == value, { change(value) }, { Text(label(value)) })
+            for (value in values) FilterChip(selected == value, { change(value) }, { Text(label(value)) }, enabled = enabled)
         }
     }
 }

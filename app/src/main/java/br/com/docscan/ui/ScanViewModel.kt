@@ -15,14 +15,18 @@ import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
 import br.com.docscan.domain.PdfOptions
+import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
 import br.com.docscan.domain.ShareablePdf
+import br.com.docscan.domain.qualityLadder
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -43,6 +47,7 @@ internal data class ScanUiState(
     val pagesExported: Int = 0,
     val lastExport: String? = null,
     val sharePdf: ShareablePdf? = null,
+    val sizeEstimates: Map<PdfQuality, Long>? = null,
     val draftError: Boolean = false,
 ) {
     val draft get() = session.draft
@@ -60,6 +65,7 @@ internal class ScanViewModel(
     private val previewRequests = MutableStateFlow<PreviewRequest?>(null)
     private val draftWrites = Channel<EditorSession>(Channel.CONFLATED)
     private val workspaceLock = Mutex()
+    private var estimatesJob: Job? = null
     private val feedback = Channel<String>(Channel.BUFFERED)
     val messages = feedback.receiveAsFlow()
 
@@ -202,6 +208,27 @@ internal class ScanViewModel(
         if (options != session.options && state.value.operation == null) {
             changeSession(session.copy(options = options, dirty = true))
         }
+    }
+
+    fun estimateSizes() {
+        clearEstimates()
+        val pages = state.value.draft.pages
+        estimatesJob = viewModelScope.launch {
+            delay(300)
+            val estimates = try {
+                repository.estimateSizes(pages, qualityLadder)
+            } catch (_: IOException) {
+                emptyMap()
+            }
+            ensureActive()
+            model.update { it.copy(sizeEstimates = estimates) }
+        }
+    }
+
+    fun clearEstimates() {
+        estimatesJob?.cancel()
+        estimatesJob = null
+        model.update { it.copy(sizeEstimates = null) }
     }
 
     fun openDocument(id: String, onOpened: () -> Unit) {
