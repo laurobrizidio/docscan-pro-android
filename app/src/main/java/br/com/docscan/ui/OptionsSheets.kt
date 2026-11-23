@@ -82,28 +82,9 @@ internal fun PdfOptionsSheet(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        ChoiceGroup("Papel", Paper.entries, options.paper, {
-            when (it) {
-                Paper.A4 -> "A4"
-                Paper.LETTER -> "Carta"
-                Paper.FIT_IMAGE -> "Ajustar à imagem"
-            }
-        }) { change(options.copy(paper = it)) }
-        ChoiceGroup("Orientação", Orientation.entries, options.orientation, {
-            when (it) {
-                Orientation.AUTO -> "Automática"
-                Orientation.PORTRAIT -> "Retrato"
-                Orientation.LANDSCAPE -> "Paisagem"
-            }
-        }) { change(options.copy(orientation = it)) }
-        ChoiceGroup("Margem", listOf(0, 10, 20), options.marginMm, { "$it mm" }) { change(options.copy(marginMm = it)) }
+        PdfPageChoices(options) { change(it(options)) }
         ChoiceGroup("Qualidade", qualityLadder.asReversed(), options.quality, { quality ->
-            val label = when (quality) {
-                PdfQuality.COMPACT -> "Compacta"
-                PdfQuality.BALANCED -> "Equilibrada"
-                PdfQuality.HIGH -> "Alta"
-                PdfQuality.MINIMAL -> "Mínima"
-            }
+            val label = quality.label()
             val size = estimates?.get(quality)
             when {
                 size != null -> "$label · ~${Formatter.formatShortFileSize(context, size)}"
@@ -130,6 +111,34 @@ internal fun PdfOptionsSheet(
         }
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Concluir") }
     }
+}
+
+@Composable
+internal fun PdfPageChoices(options: PdfOptions, change: ((PdfOptions) -> PdfOptions) -> Unit) {
+    ChoiceGroup("Papel", Paper.entries, options.paper, {
+        when (it) {
+            Paper.A4 -> "A4"
+            Paper.LETTER -> "Carta"
+            Paper.FIT_IMAGE -> "Ajustar à imagem"
+        }
+    }) { paper -> change { it.copy(paper = paper) } }
+    ChoiceGroup("Orientação", Orientation.entries, options.orientation, {
+        when (it) {
+            Orientation.AUTO -> "Automática"
+            Orientation.PORTRAIT -> "Retrato"
+            Orientation.LANDSCAPE -> "Paisagem"
+        }
+    }) { orientation -> change { it.copy(orientation = orientation) } }
+    ChoiceGroup("Margem", listOf(0, 10, 20), options.marginMm, { "$it mm" }) { margin ->
+        change { it.copy(marginMm = margin) }
+    }
+}
+
+internal fun PdfQuality.label(): String = when (this) {
+    PdfQuality.MINIMAL -> "Mínima"
+    PdfQuality.COMPACT -> "Compacta"
+    PdfQuality.BALANCED -> "Equilibrada"
+    PdfQuality.HIGH -> "Alta"
 }
 
 @Composable
@@ -196,7 +205,7 @@ internal fun EditorSheet(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun <T> ChoiceGroup(
+internal fun <T> ChoiceGroup(
     title: String,
     values: List<T>,
     selected: T,

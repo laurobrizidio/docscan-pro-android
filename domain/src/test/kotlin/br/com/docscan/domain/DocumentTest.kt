@@ -13,6 +13,14 @@ class DocumentTest {
     }
 
     @Test
+    fun defaultNameUsesTheConfiguredPrefixAndFallsBackForBlankPreferences() {
+        val zone = TimeZone.getTimeZone("GMT-04:00")
+        assertEquals("Recibo 31-12-1969 20.00", defaultDocumentName(0, zone, " Recibo "))
+        assertEquals("DocScan 31-12-1969 20.00", defaultDocumentName(0, zone, " "))
+        assertEquals(MAX_DOCUMENT_NAME_PREFIX_LENGTH, documentNamePrefix("a".repeat(50)).length)
+    }
+
+    @Test
     fun documentsAreOrderedByUpdateAndThenCreationDate() {
         val old = document("old", 1, 2)
         val edited = document("edited", 2, 8)

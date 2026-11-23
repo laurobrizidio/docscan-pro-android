@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -84,6 +85,7 @@ internal fun HomeScreen(
     snackbars: SnackbarHostState,
     dark: Boolean,
     toggleTheme: () -> Unit,
+    openSettings: () -> Unit,
     canOpenEditor: Boolean,
     canResume: Boolean,
     startScanner: () -> Unit,
@@ -133,6 +135,9 @@ internal fun HomeScreen(
                     } else {
                         IconButton(onClick = toggleTheme) {
                             ScanGlyph(if (dark) Glyph.SUN else Glyph.MOON, description = if (dark) "Tema claro" else "Tema escuro")
+                        }
+                        IconButton(onClick = openSettings, enabled = !state.busy) {
+                            Icon(Icons.Default.Settings, "Ajustes")
                         }
                     }
                 },

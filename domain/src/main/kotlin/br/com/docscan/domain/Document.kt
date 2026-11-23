@@ -31,13 +31,22 @@ enum class DocumentNameError { EMPTY, DUPLICATE, TOO_LONG }
 class InvalidDocumentName(val reason: DocumentNameError) : IllegalArgumentException(reason.name)
 
 private const val MAX_DOCUMENT_NAME_LENGTH = 100
+const val DEFAULT_DOCUMENT_NAME_PREFIX = "DocScan"
+const val MAX_DOCUMENT_NAME_PREFIX_LENGTH = 40
+
+fun documentNamePrefix(value: String): String =
+    value.trim().take(MAX_DOCUMENT_NAME_PREFIX_LENGTH).trimEnd().ifBlank { DEFAULT_DOCUMENT_NAME_PREFIX }
 
 fun documentNameKey(name: String): String =
     Normalizer.normalize(name.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
 
-fun defaultDocumentName(now: Long, timeZone: TimeZone = TimeZone.getDefault(), prefix: String = "DocScan"): String {
+fun defaultDocumentName(
+    now: Long,
+    timeZone: TimeZone = TimeZone.getDefault(),
+    prefix: String = DEFAULT_DOCUMENT_NAME_PREFIX,
+): String {
     val format = SimpleDateFormat("dd-MM-yyyy HH.mm", Locale.ROOT).apply { this.timeZone = timeZone }
-    return "$prefix ${format.format(Date(now))}"
+    return "${documentNamePrefix(prefix)} ${format.format(Date(now))}"
 }
 
 fun availableDocumentName(base: String, used: Iterable<String>): String {

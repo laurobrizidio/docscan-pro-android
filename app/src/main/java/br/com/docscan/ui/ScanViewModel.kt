@@ -24,6 +24,7 @@ import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.PdfQuality
 import br.com.docscan.domain.ScanPage
 import br.com.docscan.domain.ScanRepository
+import br.com.docscan.domain.SettingsRepository
 import br.com.docscan.domain.ShareablePdf
 import br.com.docscan.domain.TextRecognizer
 import br.com.docscan.domain.availableDocumentName
@@ -81,6 +82,7 @@ internal class ScanViewModel(
     private val repository: ScanRepository<Bitmap>,
     private val documents: DocumentRepository,
     private val recognizer: TextRecognizer,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     private data class PreviewRequest(val page: ScanPage, val original: Boolean)
 
@@ -193,7 +195,7 @@ internal class ScanViewModel(
             try {
                 safely(failureMessage) {
                     val result = workspaceLock.withLock {
-                        val base = if (newDocument) EditorSession() else state.value.session
+                        val base = if (newDocument) EditorSession(options = settings.load().pdf) else state.value.session
                         try {
                             val batch = readFiles(MAX_PAGES - base.draft.pages.size)
                             if (batch.pages.isNotEmpty()) {

@@ -8,8 +8,10 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal const val SHARED_TEXT_DIRECTORY = "shared-text"
+
 internal suspend fun shareOcrTextFile(context: Context, text: String): Uri = withContext(Dispatchers.IO) {
-    val directory = File(context.cacheDir, "shared-text")
+    val directory = File(context.cacheDir, SHARED_TEXT_DIRECTORY)
     if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cache indisponível")
     val file = File(directory, "texto.txt")
     val temporary = File.createTempFile("ocr-", ".tmp", directory)

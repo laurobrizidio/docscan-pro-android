@@ -21,9 +21,10 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 private const val PDF_OVERHEAD_PER_PAGE = 1024L
+internal const val SHARED_PDF_DIRECTORY = "shared-pdfs"
 
 internal class PdfFiles(private val context: Context, private val renderer: PageRenderer = PageRenderer()) {
-    private val sharedPdfs = File(context.cacheDir, "shared-pdfs")
+    private val sharedPdfs = File(context.cacheDir, SHARED_PDF_DIRECTORY)
 
     suspend fun write(
         file: File,

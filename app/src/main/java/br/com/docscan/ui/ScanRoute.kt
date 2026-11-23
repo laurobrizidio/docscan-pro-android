@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import br.com.docscan.domain.AppTheme
 import br.com.docscan.domain.ImageOrigin
 import br.com.docscan.domain.ImportSource
 import br.com.docscan.domain.MAX_PAGES
@@ -47,16 +48,18 @@ internal fun ScanRoute(
     activity: ComponentActivity,
     viewModel: ScanViewModel,
     home: HomeViewModel,
+    preferences: SettingsViewModel,
     onThemeChanged: (Boolean) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val library by home.state.collectAsStateWithLifecycle()
+    val settings by preferences.settings.collectAsStateWithLifecycle()
     val systemDark = isSystemInDarkTheme()
-    var darkOverride by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    val dark = darkOverride ?: systemDark
+    val dark = settings.theme.isDark(systemDark)
     SideEffect { onThemeChanged(dark) }
     val snackbars = remember { SnackbarHostState() }
     var editing by rememberSaveable { mutableStateOf(false) }
+    var showingSettings by rememberSaveable { mutableStateOf(false) }
     var idStep by rememberSaveable { mutableStateOf<IdStep?>(null) }
     var confirmDiscardId by rememberSaveable { mutableStateOf(false) }
     var newDocument by rememberSaveable { mutableStateOf(false) }
@@ -119,6 +122,7 @@ internal fun ScanRoute(
 
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbars.showSnackbar(it) } }
     LaunchedEffect(home) { home.messages.collect { snackbars.showSnackbar(it) } }
+    LaunchedEffect(preferences) { preferences.messages.collect { snackbars.showSnackbar(it) } }
     LaunchedEffect(viewModel) {
         viewModel.idCardTransitions.collect { result ->
             when (result) {
@@ -218,12 +222,25 @@ internal fun ScanRoute(
         }
     }
 
+    fun toggleTheme() {
+        preferences.update { current ->
+            val theme = if (current.theme.isDark(systemDark)) AppTheme.LIGHT else AppTheme.DARK
+            current.copy(theme = theme)
+        }
+    }
+
     ScanTheme(dark) {
         val step = idStep
-        BackHandler(editing || step != null) {
-            if (step != null) cancelIdCard() else if (state.operation == null) editing = false
+        BackHandler(editing || showingSettings || step != null) {
+            when {
+                showingSettings -> showingSettings = false
+                step != null -> cancelIdCard()
+                state.operation == null -> editing = false
+            }
         }
-        if (step != null) {
+        if (showingSettings) {
+            SettingsScreen(settings, preferences, snackbars, onBack = { showingSettings = false })
+        } else if (step != null) {
             IdCardGuide(
                 step = step,
                 preparing = capture.preparing,
@@ -247,7 +264,7 @@ internal fun ScanRoute(
                 viewModel = viewModel,
                 snackbars = snackbars,
                 dark = dark,
-                toggleTheme = { darkOverride = !dark },
+                toggleTheme = ::toggleTheme,
                 startScanner = { capturePages(new = false) },
                 pickImages = { pickImages(new = false) },
                 pickFiles = { pickFiles(new = false) },
@@ -263,7 +280,8 @@ internal fun ScanRoute(
                 viewModel = home,
                 snackbars = snackbars,
                 dark = dark,
-                toggleTheme = { darkOverride = !dark },
+                toggleTheme = ::toggleTheme,
+                openSettings = { showingSettings = true },
                 canOpenEditor = state.operation == null && !state.draftError,
                 canResume = state.session.dirty && state.draft.pages.isNotEmpty(),
                 startScanner = { replaceDraft { capturePages(new = true) } },
@@ -314,6 +332,12 @@ internal fun ScanRoute(
         }
         PdfShareSheet(library.sharedPdfs, onDismiss = home::closeShare, onError = viewModel::tell)
     }
+}
+
+private fun AppTheme.isDark(systemDark: Boolean): Boolean = when (this) {
+    AppTheme.SYSTEM -> systemDark
+    AppTheme.LIGHT -> false
+    AppTheme.DARK -> true
 }
 
 private fun ContentResolver.pdfDisplayName(uri: Uri): String? {

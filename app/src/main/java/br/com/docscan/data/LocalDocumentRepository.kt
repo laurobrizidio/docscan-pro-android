@@ -12,6 +12,7 @@ import br.com.docscan.domain.Draft
 import br.com.docscan.domain.EditorSession
 import br.com.docscan.domain.PdfOptions
 import br.com.docscan.domain.ScanPage
+import br.com.docscan.domain.SettingsRepository
 import br.com.docscan.domain.ShareablePdf
 import br.com.docscan.domain.availableDocumentName
 import br.com.docscan.domain.defaultDocumentName
@@ -32,13 +33,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+internal const val DOCUMENTS_DIRECTORY = "documents"
+
 internal class LocalDocumentRepository(
     context: Context,
     private val dao: DocumentDao,
     private val scans: LocalScanRepository,
     private val pdfFiles: PdfFiles,
+    private val settings: SettingsRepository,
 ) : DocumentRepository {
-    private val documents = File(context.filesDir, "documents")
+    private val documents = File(context.filesDir, DOCUMENTS_DIRECTORY)
     private val changes = File(context.filesDir, "document-changes")
     private val legacy = File(context.filesDir, "scans")
     private val renderer = PageRenderer()
@@ -145,7 +149,10 @@ internal class LocalDocumentRepository(
         if (draft.pages.isEmpty()) throw IOException("Documento sem páginas")
         val names = otherNames(id)
         val name = if (options.name.isBlank()) {
-            existing?.name ?: availableDocumentName(defaultDocumentName(now), names)
+            existing?.name ?: availableDocumentName(
+                defaultDocumentName(now, prefix = settings.load().documentNamePrefix),
+                names,
+            )
         } else {
             validatedDocumentName(options.name, names)
         }
