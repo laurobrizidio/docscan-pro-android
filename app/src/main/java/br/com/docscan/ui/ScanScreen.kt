@@ -198,7 +198,10 @@ internal fun ScanScreen(
             val wide = maxWidth >= 760.dp
             val previewHeight = (maxHeight * if (wide) 0.69f else 0.45f).coerceIn(230.dp, if (wide) 540.dp else 370.dp)
             Column(Modifier.fillMaxSize()) {
-                state.operation?.let { CurrentOperation(it, state.pagesExported, state.draft.pages.size) }
+                state.operation?.let {
+                    if (it == Operation.RECOGNIZING) CurrentOperation(it, state.ocrDone, state.ocrTotal)
+                    else CurrentOperation(it, state.pagesExported, state.draft.pages.size)
+                }
                 when {
                     state.draftError -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -255,9 +258,12 @@ internal fun CurrentOperation(operation: Operation, done: Int, total: Int) {
         Operation.SAVING -> "Salvando na biblioteca · $done de $total"
         Operation.EXPORTING -> "Gerando PDF · $done de $total"
         Operation.SHARING -> "Preparando PDF · $done de $total"
+        Operation.RECOGNIZING -> "Reconhecendo texto · $done de $total"
     }
     Column(Modifier.fillMaxWidth()) {
-        if (operation == Operation.EXPORTING || operation == Operation.SHARING || operation == Operation.SAVING) {
+        if (operation == Operation.EXPORTING || operation == Operation.SHARING ||
+            operation == Operation.SAVING || operation == Operation.RECOGNIZING
+        ) {
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         } else {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())

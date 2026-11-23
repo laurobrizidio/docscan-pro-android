@@ -17,6 +17,7 @@ import br.com.docscan.domain.ImportSource
 import br.com.docscan.domain.InvalidDocumentName
 import br.com.docscan.domain.Look
 import br.com.docscan.domain.MAX_PAGES
+import br.com.docscan.domain.OcrPage
 import br.com.docscan.domain.Orientation
 import br.com.docscan.domain.Paper
 import br.com.docscan.domain.PdfOptions
@@ -31,9 +32,11 @@ import br.com.docscan.domain.qualityLadder
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,10 +51,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal enum class Operation {
-    LOADING, OPENING, IMPORTING, ADDING_SCANS, COMPOSING, DISCARDING, DETECTING, SAVING, EXPORTING, SHARING,
+    LOADING, OPENING, IMPORTING, ADDING_SCANS, COMPOSING, DISCARDING, DETECTING, SAVING, EXPORTING, SHARING, RECOGNIZING,
 }
 
 internal enum class IdCardResult { FRONT_IMPORTED, COMPOSED, DISCARDED }
+
+internal data class OcrState(val allPages: Boolean, val pages: List<OcrPage> = emptyList())
 
 internal data class ScanUiState(
     val session: EditorSession = EditorSession(),
@@ -64,6 +69,9 @@ internal data class ScanUiState(
     val sharePdf: ShareablePdf? = null,
     val sizeEstimates: Map<PdfQuality, Long>? = null,
     val draftError: Boolean = false,
+    val ocr: OcrState? = null,
+    val ocrDone: Int = 0,
+    val ocrTotal: Int = 0,
 ) {
     val draft get() = session.draft
     val options get() = session.options
@@ -82,6 +90,7 @@ internal class ScanViewModel(
     private val draftWrites = Channel<EditorSession>(Channel.CONFLATED)
     private val workspaceLock = Mutex()
     private var estimatesJob: Job? = null
+    private var ocrJob: Job? = null
     private val feedback = Channel<String>(Channel.BUFFERED)
     val messages = feedback.receiveAsFlow()
     private val idCardResults = Channel<IdCardResult>(Channel.BUFFERED)
@@ -335,6 +344,44 @@ internal class ScanViewModel(
         refreshPreview()
     }
 
+    fun extractText(allPages: Boolean = false) {
+        val draft = state.value.draft
+        val pages = if (allPages) draft.pages else listOfNotNull(draft.selected)
+        if (pages.isEmpty() || !begin(Operation.RECOGNIZING)) return
+        model.update { it.copy(ocrDone = 0, ocrTotal = pages.size) }
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val activeJob = currentCoroutineContext()[Job]
+            try {
+                safely("Não foi possível extrair o texto.") {
+                    val results = pages.mapIndexed { index, page ->
+                        ensureActive()
+                        val result = recognizer.recognize(page)
+                        ensureActive()
+                        model.update { it.copy(ocrDone = index + 1) }
+                        result
+                    }
+                    model.update { it.copy(ocr = OcrState(allPages, results)) }
+                }
+            } finally {
+                if (ocrJob === activeJob) {
+                    ocrJob = null
+                    model.update { it.copy(operation = null) }
+                }
+            }
+        }
+        ocrJob = job
+        job.start()
+    }
+
+    fun cancelOcr() {
+        val job = ocrJob ?: return
+        ocrJob = null
+        job.cancel()
+        model.update { it.copy(operation = null) }
+    }
+
+    fun dismissOcr() = model.update { it.copy(ocr = null) }
+
     fun setPdfOptions(options: PdfOptions) {
         val session = state.value.session
         if (options != session.options && state.value.operation == null) {
@@ -512,6 +559,7 @@ internal class ScanViewModel(
             it.copy(
                 session = session,
                 original = it.original && session.draft.selectedId == it.draft.selectedId,
+                ocr = if (session.draft == it.draft) it.ocr else null,
             )
         }
         refreshPreview()
